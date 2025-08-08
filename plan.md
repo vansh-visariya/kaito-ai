@@ -28,31 +28,31 @@ Goal: To build the basic, runnable Streamlit application with a core conversatio
 
 Task 1.1: Environment & Project Setup
 
-[ ] Initialize a Git repository.
+[*] Initialize a Git repository.
 
-[ ] Create a Python virtual environment (venv or conda).
+[*] Create a Python virtual environment (venv or conda).
 
-[ ] Install initial dependencies: streamlit, langchain, langgraph, langchain-groq, python-dotenv.
+[*] Install initial dependencies: streamlit, langchain, langgraph, langchain-groq, python-dotenv.
 
-[ ] Create the project structure: app.py, requirements.txt, .env file for API keys.
+[*] Create the project structure: app.py, requirements.txt, .env file for API keys.
 
 Task 1.2: Basic Streamlit Interface
 
-[ ] Create the main application file app.py.
+[*] Create the main application file app.py.
 
-[ ] Add a title and a brief description of the app.
+[*] Add a title and a brief description of the app.
 
-[ ] Implement a text input (st.text_input) for the user to enter their Groq API key. Hide the key behind a password field.
+[*] Implement a text input (st.text_input) for the user to enter their Groq API key. Hide the key behind a password field.
 
-[ ] Use st.chat_input for user messages and st.chat_message to display the conversation.
+[*] Use st.chat_input for user messages and st.chat_message to display the conversation.
 
 Task 1.3: Core Conversational Graph
 
-[ ] Define a State TypedDict for LangGraph that will manage the list of messages.
+[*] Define a State TypedDict for LangGraph that will manage the list of messages.
 
-[ ] Create a graph node that takes the current state and calls the ChatGroq model.
+[*] Create a graph node that takes the current state and calls the ChatGroq model.
 
-[ ] Compile the StateGraph into a runnable app.
+[*] Compile the StateGraph into a runnable app.
 
 Task 1.4: Session State & Chat Logic
 
