@@ -1,53 +1,91 @@
 import streamlit as st
-from langchain_groq import ChatGroq
-from langchain_core.prompts import ChatPromptTemplate
-from typing import Annotated
-from typing_extensions import TypedDict
-from langgraph.graph import StateGraph, START, END
-from langgraph.graph.message import add_messages
-import os
+from backend import model_create
+from utility import generate_unique_id, validate_groq_key
+from langchain_core.messages import HumanMessage
 
 st.title("chatbot")
 
-### getting api from user
-groq_api_key = st.text_input("enter you api key", type="password")
-os.environ["GROQ_API_KEY"] = groq_api_key
+## function for storing all threads in the conversion
+def add_thread_id(thread_id):
+    if 'thread_list' not in st.session_state:
+        st.session_state['thread_list'] = []
+    if thread_id not in st.session_state['thread_list']:
+        st.session_state['thread_list'].append(thread_id)
 
-### select which model to use
-option = st.selectbox(
-    'which model you want to use',
-    ['openai/gpt-oss-20b', 'deepseek-r1-distill-llama-70b', 'qwen/qwen3-32b', 'gemma2-9b-it','llama-3.1-8b-instant']
+def load_conversation(thread_id):
+    state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
+    return state.values.get('messages', [])
+
+## user data collection
+with st.sidebar:
+    groq_api_key = st.text_input("Enter your API key", type="password")
+    model_name = st.text_input("Enter the model you want to use", value="gemma2-9b-it")
+
+## validate groq key
+if groq_api_key and validate_groq_key(groq_api_key):
+    graph = model_create(groq_api_key, model_name)
+else:
+    st.error("Invalid Groq API key. Please check and try again.")
+
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if 'thread_id' not in st.session_state:
+    thread = generate_unique_id()
+    st.session_state['thread_id'] = thread
+    add_thread_id(thread)
+
+## config for langgraph
+CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+
+## new chat button
+if st.sidebar.button("new chat"):
+    thread = generate_unique_id()
+    st.session_state['thread_id'] = thread
+    st.session_state.messages = []
+    CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+    add_thread_id(st.session_state['thread_id'])
+
+## load previous conversations
+selected_thread = st.sidebar.selectbox(
+    "Select a conversation thread",
+    options=st.session_state['thread_list']
 )
-llm = ChatGroq(model=option)
 
-### define state
-class State(TypedDict):
-    messages: Annotated[list, add_messages]
+if selected_thread != st.session_state['thread_id']:
+    st.session_state['thread_id'] = selected_thread
+    messages = load_conversation(selected_thread)
+    conv = []
+    for m in messages:
+        if isinstance(m, HumanMessage):
+            conv.append({"role": "user", "content": m.content})
+        else:
+            conv.append({"role": "assistant", "content": m.content})
+    st.session_state.messages = conv
 
-graph_builder = StateGraph(State)
 
-### define chatbot
-def chatbot(state: State):
-    return {"messages": [llm.invoke(state["messages"])]}
-
-graph_builder.add_node("chatbot", chatbot)
-graph_builder.add_edge(START, "chatbot") 
-graph_builder.add_edge("chatbot", END)      ### START -> chatbot -> END
-
-graph = graph_builder.compile()
+## display chat history
+for message in st.session_state.messages:
+    st.chat_message(message["role"]).text(message["content"])
 
 ### user input
 user_input = st.chat_input("Enter your query")
 
 if user_input:
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
     st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    for message in st.session_state.messages:
-        st.chat_message(message["role"]).write(message["content"])
+    st.chat_message("user").markdown(user_input)
 
-    for event in graph.stream({"messages": st.session_state.messages}):
-        for value in event.values():
-            st.session_state.messages.append({"role": "assistant", "content": value["messages"][-1].content})
-            st.chat_message("assistant").write(value["messages"][-1].content)
+    response_chunks = []
+    with st.chat_message("assistant"):
+        with st.spinner("Generating response..."):
+            for message_chunk, metadata in graph.stream(
+                {"messages": [HumanMessage(content=user_input)]}, 
+                config=CONFIG, 
+                stream_mode="messages"
+            ):
+                content = message_chunk.content
+                response_chunks.append(content)
+                st.markdown(content)
+
+        full_response = "".join(response_chunks)
+        st.session_state.messages.append({"role": "assistant", "content": full_response})

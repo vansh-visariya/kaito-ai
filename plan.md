@@ -56,13 +56,13 @@ Task 1.3: Core Conversational Graph
 
 Task 1.4: Session State & Chat Logic
 
-[ ] Use st.session_state to store the chat history (messages).
+[*] Use st.session_state to store the chat history (messages).
 
-[ ] Write the logic to append user messages and AI responses to the session state.
+[*] Write the logic to append user messages and AI responses to the session state.
 
-[ ] Loop through and display the messages from the session state on each app rerun.
+[*] Loop through and display the messages from the session state on each app rerun.
 
-[ ] Ensure the app only proceeds if a valid Groq API key is provided.
+[*] Ensure the app only proceeds if a valid Groq API key is provided.
 
 Phase 2: Advanced Capabilities - RAG and Web Search
 Goal: To empower the chatbot with external knowledge from files and the web.
@@ -114,9 +114,9 @@ Goal: To add features that make the chatbot more interactive and user-friendly.
 
 Task 3.1: Chat Management
 
-[ ] Add a "New Chat" button (st.button) that clears the st.session_state.messages to start a fresh conversation.
+[*] Add a "New Chat" button (st.button) that clears the st.session_state.messages to start a fresh conversation.
 
-[ ] Add a loading spinner (st.spinner) that appears while the chatbot is thinking or using tools.
+[*] Add a loading spinner (st.spinner) that appears while the chatbot is thinking or using tools.
 
 Task 3.2: Voice Assistant Integration
 
