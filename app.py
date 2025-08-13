@@ -23,9 +23,17 @@ with st.sidebar:
 
 ## validate groq key
 if groq_api_key and validate_groq_key(groq_api_key):
-    graph = model_create(groq_api_key, model_name)
+    pass
 else:
     st.error("Invalid Groq API key. Please check and try again.")
+graph,memory = model_create(groq_api_key, model_name)
+
+## retrieve all threads from sqlite database
+def retrieve_threads():
+    all_threads = set()
+    for m in memory.list(None):
+        all_threads.add(m.config['cnfigurable']['thread_id'])
+    return list(all_threads)
 
 if "messages" not in st.session_state:
     st.session_state.messages = []
@@ -49,7 +57,7 @@ if st.sidebar.button("new chat"):
 ## load previous conversations
 selected_thread = st.sidebar.selectbox(
     "Select a conversation thread",
-    options=st.session_state['thread_list']
+    options=retrieve_threads()
 )
 
 if selected_thread != st.session_state['thread_id']:
