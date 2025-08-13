@@ -4,3 +4,5 @@ langgraph
 langchain-groq
 python-dotenv
 langgraph-checkpoint-sqlite
+langchain-tavily
+langchain-community

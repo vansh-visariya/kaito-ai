@@ -2,7 +2,7 @@ import uuid
 import requests
 
 def generate_unique_id():
-    return uuid.uuid4()
+    return str(uuid.uuid4())
 
 def validate_groq_key(api_key):
     headers = {

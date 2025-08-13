@@ -10,10 +10,6 @@ def add_thread_id(thread_id):
     if thread_id not in st.session_state['thread_list']:
         st.session_state['thread_list'].append(thread_id)
 
-def load_conversation(thread_id):
-    state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
-    return state.values.get('messages', [])
-
 ## user data collection
 with st.sidebar:
     groq_api_key = st.text_input("Enter your API key", type="password")
@@ -25,6 +21,10 @@ if groq_api_key and validate_groq_key(groq_api_key):
 else:
     st.error("Invalid Groq API key. Please check and try again.")
     st.stop()
+
+def load_conversation(thread_id):
+    state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
+    return state.values.get('messages', [])
 
 ## retrieve all threads from sqlite database
 def retrieve_threads():
@@ -42,7 +42,7 @@ if 'thread_list' not in st.session_state:
 
 if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_unique_id()
-add_thread_id(st.session_state['thread_id'])
+    add_thread_id(st.session_state['thread_id'])
 
 
 
@@ -73,7 +73,7 @@ if selected_thread != st.session_state['thread_id']:
 
 ## display chat history
 for message in st.session_state.messages:
-    st.chat_message(message["role"]).text(message["content"])
+    st.chat_message(message["role"]).markdown(message["content"])
 
 ### user input
 user_input = st.chat_input("Enter your query")
@@ -85,7 +85,6 @@ if user_input:
     ## config for langgraph
     CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
 
-    response_chunks = []
     with st.chat_message("assistant"):
         with st.spinner("Generating response..."):
             ai_message = st.write_stream(
