@@ -7,8 +7,6 @@ st.title("chatbot")
 
 ## function for storing all threads in the conversion
 def add_thread_id(thread_id):
-    if 'thread_list' not in st.session_state:
-        st.session_state['thread_list'] = []
     if thread_id not in st.session_state['thread_list']:
         st.session_state['thread_list'].append(thread_id)
 
@@ -23,41 +21,42 @@ with st.sidebar:
 
 ## validate groq key
 if groq_api_key and validate_groq_key(groq_api_key):
-    pass
+    graph,memory = model_create(groq_api_key, model_name)
 else:
     st.error("Invalid Groq API key. Please check and try again.")
-graph,memory = model_create(groq_api_key, model_name)
+    st.stop()
 
 ## retrieve all threads from sqlite database
 def retrieve_threads():
     all_threads = set()
     for m in memory.list(None):
-        all_threads.add(m.config['cnfigurable']['thread_id'])
+        all_threads.add(m.config['configurable']['thread_id'])
     return list(all_threads)
 
+## setup for session state
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-if 'thread_id' not in st.session_state:
-    thread = generate_unique_id()
-    st.session_state['thread_id'] = thread
-    add_thread_id(thread)
+if 'thread_list' not in st.session_state:
+    st.session_state['thread_list'] = retrieve_threads()
 
-## config for langgraph
-CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+if 'thread_id' not in st.session_state:
+    st.session_state['thread_id'] = generate_unique_id()
+add_thread_id(st.session_state['thread_id'])
+
+
 
 ## new chat button
 if st.sidebar.button("new chat"):
     thread = generate_unique_id()
     st.session_state['thread_id'] = thread
     st.session_state.messages = []
-    CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
     add_thread_id(st.session_state['thread_id'])
 
 ## load previous conversations
 selected_thread = st.sidebar.selectbox(
     "Select a conversation thread",
-    options=retrieve_threads()
+    options=st.session_state['thread_list'][::-1]
 )
 
 if selected_thread != st.session_state['thread_id']:
@@ -83,17 +82,17 @@ if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     st.chat_message("user").markdown(user_input)
 
+    ## config for langgraph
+    CONFIG = {'configurable':{'thread_id': st.session_state['thread_id']}}
+
     response_chunks = []
     with st.chat_message("assistant"):
         with st.spinner("Generating response..."):
-            for message_chunk, metadata in graph.stream(
-                {"messages": [HumanMessage(content=user_input)]}, 
-                config=CONFIG, 
-                stream_mode="messages"
-            ):
-                content = message_chunk.content
-                response_chunks.append(content)
-                st.markdown(content)
-
-        full_response = "".join(response_chunks)
-        st.session_state.messages.append({"role": "assistant", "content": full_response})
+            ai_message = st.write_stream(
+                message_chunk.content for message_chunk, metadata in graph.stream(
+                    {'messages': [HumanMessage(content=user_input)]},
+                    config= CONFIG,
+                    stream_mode= 'messages'
+                )
+            )
+            st.session_state.messages.append({"role": "assistant", "content": ai_message})
