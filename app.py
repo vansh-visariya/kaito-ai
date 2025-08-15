@@ -26,12 +26,11 @@ else:
 def delete_thread(thread_id, memory):
     """Delete a specific thread from the database"""
     try:
-        # SqliteSaver doesn't have a direct delete method
-        # Need to access the underlying SQLite connection
+        ## SqliteSaver doesn't have a direct delete method Need to access the underlying SQLite connection
         conn = memory.conn
         cursor = conn.cursor()
         
-        # Delete from checkpoints table (where conversation data is stored)
+        ## Delete from checkpoints table (where conversation data is stored)
         cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
         conn.commit()
         
@@ -40,7 +39,7 @@ def delete_thread(thread_id, memory):
         st.error(f"Error deleting thread: {e}")
         return False
 
-## load conversation from sqlite database
+## get the conversation from the database for the particular thread_id
 def load_conversation(thread_id):
     state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
     return state.values.get('messages', [])
@@ -63,6 +62,7 @@ if 'thread_id' not in st.session_state:
     st.session_state['thread_id'] = generate_unique_id()
     add_thread_id(st.session_state['thread_id'])
 
+## function to extract first message from thread
 def get_thread_preview(thread_id):
     """Get first message of thread for preview"""
     try:
@@ -75,12 +75,11 @@ def get_thread_preview(thread_id):
     except:
         return f"Thread {thread_id[:8]}"
 
-## new chat button
 ## Enhanced thread management in sidebar
 with st.sidebar:
     st.subheader("Thread Management")
     
-    # New chat button
+    ## New chat button
     if st.button("🆕 New Chat"):
         thread = generate_unique_id()
         st.session_state['thread_id'] = thread
@@ -88,7 +87,7 @@ with st.sidebar:
         add_thread_id(st.session_state['thread_id'])
         st.rerun()
     
-    # Thread selection with delete option
+    ## Thread selection with delete option
     if st.session_state.get('thread_list'):
         col1, col2 = st.columns([3, 1])
         
@@ -99,7 +98,7 @@ with st.sidebar:
                 format_func=get_thread_preview
             )
         
-        with col2:
+        with col2: ## delete the thread instantly before thread is loaded
             if st.button("🗑️", help="Delete selected thread"):
                 if selected_thread != st.session_state['thread_id']:
                     if delete_thread(selected_thread, memory):
@@ -110,14 +109,15 @@ with st.sidebar:
                     st.error("Cannot delete current thread")
 
 
-# Add to sidebar 
+## Add to sidebar (remove any empty threads which were created) keeps the thread list clean
 with st.expander("🧹 Thread Cleanup"):
     st.write(f"Total threads: {len(st.session_state.get('thread_list', []))}")
     
+    ## check thread where messages are empty and delete them
     if st.button("Delete All Empty Threads"):
         deleted_count = 0
         for thread_id in st.session_state['thread_list'].copy():
-            if thread_id != st.session_state['thread_id']:
+            if thread_id != st.session_state['thread_id']: ## don't delete current thread
                 messages = load_conversation(thread_id)
                 if not messages:  # Empty thread
                     if delete_thread(thread_id, memory):
@@ -128,7 +128,7 @@ with st.expander("🧹 Thread Cleanup"):
             st.success(f"Deleted {deleted_count} empty threads")
             st.rerun()
 
-
+## load conversation from selected thread
 if selected_thread != st.session_state['thread_id']:
     st.session_state['thread_id'] = selected_thread
     messages = load_conversation(selected_thread)
