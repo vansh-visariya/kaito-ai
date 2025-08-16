@@ -6,3 +6,8 @@ python-dotenv
 langgraph-checkpoint-sqlite
 langchain-tavily
 langchain-community
+langchain-chroma
+PyPDF2
+SpeechRecognition
+pydub
+audio-recorder-streamlit

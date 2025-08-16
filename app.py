@@ -2,6 +2,10 @@ import streamlit as st
 from backend import model_create
 from utility import generate_unique_id, validate_groq_key
 from langchain_core.messages import HumanMessage
+from audio_recorder_streamlit import audio_recorder
+from groq import Groq
+import io
+import os
 
 st.title("chatbot")
 
@@ -145,8 +149,11 @@ if selected_thread != st.session_state['thread_id']:
 for message in st.session_state.messages:
     st.chat_message(message["role"]).markdown(message["content"])
 
-### user input
-user_input = st.chat_input("Enter your query")
+input = st.chat_input("Enter your query",accept_file=True,file_types=['pdf'])
+if input and input.text:
+    user_input = input.text
+if input and input['files']:
+    document = input['files']
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
