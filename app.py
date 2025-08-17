@@ -1,11 +1,9 @@
 import streamlit as st
-from backend import model_create
+from agent.search import model_create
 from utility import generate_unique_id, validate_groq_key
 from langchain_core.messages import HumanMessage
-from audio_recorder_streamlit import audio_recorder
-from groq import Groq
-import io
-import os
+from database.get_sql import get_sqlite_connection
+from rag.agentic_rag import create_rag_chain
 
 st.title("chatbot")
 
@@ -19,9 +17,12 @@ with st.sidebar:
     groq_api_key = st.text_input("Enter your API key", type="password")
     model_name = st.text_input("Enter the model you want to use", value="gemma2-9b-it")
 
+## get sqlite connection
+memory = get_sqlite_connection()
+
 ## validate groq key
 if groq_api_key and validate_groq_key(groq_api_key):
-    graph,memory = model_create(groq_api_key, model_name)
+    graph = model_create(groq_api_key, model_name)
 else:
     st.error("Invalid Groq API key. Please check and try again.")
     st.stop()
@@ -149,11 +150,13 @@ if selected_thread != st.session_state['thread_id']:
 for message in st.session_state.messages:
     st.chat_message(message["role"]).markdown(message["content"])
 
-input = st.chat_input("Enter your query",accept_file=True,file_types=['pdf'])
+user_input = None
+input = st.chat_input("Enter your query",accept_file=True,file_type=['pdf'])
 if input and input.text:
     user_input = input.text
 if input and input['files']:
     document = input['files']
+    graph = create_rag_chain(groq_api_key, model_name, document)
 
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
@@ -166,7 +169,7 @@ if user_input:
         with st.spinner("Generating response..."):
             ai_message = st.write_stream(
                 message_chunk.content for message_chunk, metadata in graph.stream(
-                    {'messages': [HumanMessage(content=user_input)]},
+                    {"question": user_input},
                     config= CONFIG,
                     stream_mode= 'messages'
                 )
