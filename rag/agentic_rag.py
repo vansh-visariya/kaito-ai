@@ -18,44 +18,45 @@ import os
 
 load_dotenv()
 
+embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+tavily_retriever = TavilySearchAPIRetriever(k=3)
+
+def setup_vector_store(files):
+    ## Load documents
+    all_docs = []
+    for file in files:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
+            tmp_file.write(file.getvalue())
+            tmp_file_path = tmp_file.name
+
+        loader = PyPDFLoader(tmp_file_path) 
+        documents = loader.load()
+        all_docs.extend(documents)
+        os.remove(tmp_file_path)
+    
+    ## Split documents
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200
+    )
+    splits = text_splitter.split_documents(all_docs)
+    
+    ## Create vector store
+    vector_store = Chroma.from_documents(
+        documents=splits,
+        embedding=embeddings,
+        persist_directory="./chroma_langchain_db" 
+    )
+    
+    return vector_store
+
 def create_rag_chain(groq_api_key, model_name, files):
     os.environ["GROQ_API_KEY"] = groq_api_key
     llm = ChatGroq(model=model_name)
     memory = get_rag_memory()
 
-    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
-
-    def setup_vector_store():
-        ## Load documents
-        all_docs = []
-        for file in files:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
-                tmp_file.write(file.getvalue())
-                tmp_file_path = tmp_file.name
-
-            loader = PyPDFLoader(tmp_file_path) 
-            documents = loader.load()
-            all_docs.extend(documents)
-            os.remove(tmp_file_path)
-        
-        ## Split documents
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200
-        )
-        splits = text_splitter.split_documents(all_docs)
-        
-        ## Create vector store
-        vector_store = Chroma.from_documents(
-            documents=splits,
-            embedding=embeddings,
-            persist_directory="./chroma_langchain_db" 
-        )
-        
-        return vector_store
-
     # Initialize vector store
-    vector_store = setup_vector_store()
+    vector_store = setup_vector_store(files)
     retriever = vector_store.as_retriever(search_kwargs={"k": 3}) ## get only top 3 documents
 
     # Define the state structure
@@ -169,14 +170,16 @@ def create_rag_chain(groq_api_key, model_name, files):
         prompt = PromptTemplate(
             template="""You are an assistant for question-answering tasks. Use the following pieces of retrieved context to answer the question.
             If you don't know the answer, just say that you don't know.
-            
+            Also you have the conversation history to answer the question.
+
+            chat_history this is the conversation history. You can refer to it to answer the user's question of personal context: {messages}
             Question: {question}
             
             Context: {context}
             
             Answer:
             """,
-            input_variables=["question", "context"],
+            input_variables=["messages","question", "context"],
         )
         
         return prompt | llm | StrOutputParser()
@@ -209,8 +212,7 @@ def create_rag_chain(groq_api_key, model_name, files):
         question = state["question"]
         
         # Use the retriever which directly returns Document objects
-        retriever = TavilySearchAPIRetriever(k=3)
-        documents = retriever.invoke(question)
+        documents = tavily_retriever.invoke(question)
         
         return {"question": question, "documents": documents}
 
@@ -225,7 +227,7 @@ def create_rag_chain(groq_api_key, model_name, files):
         ])
         
         # Generate answer
-        answer = rag_chain.invoke({"context": context, "question": question})
+        answer = rag_chain.invoke({"messages": state['messages'],"context": context, "question": question})
         
         return {"question": question, "documents": documents, "generation": answer}
     
@@ -241,17 +243,12 @@ def create_rag_chain(groq_api_key, model_name, files):
         generation = state["generation"]
         
         if not is_grounded(generation, documents):
-            ans =  "not grounded"
-            return ans
+            return "not_grounded"
         
-        if not answers_question(generation, question):
-            ans = "not useful"
-            return ans
-        
-        ans = "useful"
-        if ans == "useful":
-            update_memory(state)
-            return ans
+        if not answers_question(generation, question): 
+            return "not_useful"
+         
+        return "useful"
 
     def decide_to_generate(state: GraphState):
         if state["documents"]:
@@ -268,6 +265,7 @@ def create_rag_chain(groq_api_key, model_name, files):
     workflow.add_node("transform_query", transform_query)
     workflow.add_node("web_search", web_search)
     workflow.add_node("generate", generate)
+    workflow.add_node("update_memory", update_memory)
 
     # Add edges
     workflow.add_edge(START, "retrieve")
@@ -289,9 +287,10 @@ def create_rag_chain(groq_api_key, model_name, files):
         {
             "not_grounded": "web_search",
             "not_useful": "transform_query",
-            "useful": END,
+            "useful": "update_memory",
         },
     )
+    workflow.add_edge("update_memory", END)
 
     # Compile the graph
     app = workflow.compile(checkpointer=memory)

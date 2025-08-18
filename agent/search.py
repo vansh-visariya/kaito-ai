@@ -1,4 +1,4 @@
-from typing_extensions import TypedDict, Optional
+from typing_extensions import TypedDict, Optional, Annotated
 from typing import List
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
@@ -7,6 +7,7 @@ from langchain_tavily import TavilySearch
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+from langgraph.graph.message import add_messages
 import json
 import os
 from database.get_sql import get_search_memory
@@ -25,7 +26,7 @@ def model_create(groq_api_key, model_name):
         generation: str
         question: str
         search_results: Optional[list[str]]
-        messages: List[BaseMessage]
+        messages: Annotated[List[BaseMessage],add_messages]
 
     graph = StateGraph(AgentState)
 
@@ -73,14 +74,17 @@ def model_create(groq_api_key, model_name):
 
     def generate(state: AgentState):
         prompt = PromptTemplate(
-            template="""You are a helpful assistant. Answer the user's question using the provided search results as context.
-            question: {question}
-            search_results: {search_results}
+            template="""
+        You are a knowledgeable and helpful assistant. Answer the user's question as accurately and helpfully as possible.
 
-            Answer:
-            """,
-            input_variables=["question", "search_results"],
-        )
+        Use the information from your own knowledge. If the provided search results are relevant or necessary for answering the question, you may refer to them — but only use them when needed. If the answer can be confidently given without them, do not rely on the search results.
+
+        chat_history: this is the conversation history. You can refer to it to answer the user's question of personal context {messages}
+        question: {question}
+        search_results: {search_results}
+        """,
+            input_variables=["messages","question", "search_results"],
+            )
         chain = prompt | llm | StrOutputParser()
         question = state['question']
         search_results = state.get('search_results', [])
@@ -88,7 +92,7 @@ def model_create(groq_api_key, model_name):
 
         search_results = state.get('search_results', [])
         
-        answer = chain.invoke({"question": question, "search_results": "\n\n".join(search_results)})
+        answer = chain.invoke({"messages": messages,"question": question, "search_results": "\n\n".join(search_results)})
         messages.append(HumanMessage(content=question))
         messages.append(AIMessage(content=answer))
 

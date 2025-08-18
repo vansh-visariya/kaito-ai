@@ -4,18 +4,23 @@ from utility import generate_unique_id, validate_groq_key, get_memory_for_mode
 from langchain_core.messages import HumanMessage, AIMessage
 from rag.agentic_rag import create_rag_chain
 from database.get_sql import get_search_memory, get_rag_memory
+import shutil
 import os
 
+st.set_page_config(
+    page_title="ChatBot",       # Title on the browser tab
+    page_icon="🤖",                    # Icon on the browser tab (emoji or URL)
+    layout="wide",                     # "centered" (default) or "wide"
+)
+
 # LangSmith configuration
-langchain_api_key = os.getenv("LANGCHAIN_API_KEY")
-if langchain_api_key:
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_API_KEY"] = langchain_api_key
-    os.environ["LANGCHAIN_PROJECT"] = "chatbot"
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
+os.environ["LANGCHAIN_PROJECT"] = "chatbot"
 
-st.title("🤖 Advanced Chatbot")
+st.title("🤖 ChaBot")
 
-## Enhanced Graph Manager for proper separation
+## Graph Manager for proper separation
 class GraphManager:
     def __init__(self, groq_api_key, model_name):
         self.groq_api_key = groq_api_key
@@ -37,28 +42,22 @@ class GraphManager:
         return self.rag_graph
     
     def get_graph_for_thread(self, thread_id):
-        """Get the appropriate graph based on thread ID"""
         mode = get_thread_mode(thread_id)
         if mode == "rag":
-            if not self.rag_graph:
-                # If RAG graph doesn't exist but thread is RAG, there's an issue
+            if not self.rag_graph: ## if mode is rag but the rag graph is not present then return none, graph is deleted due to deletion of documents
                 st.error("RAG graph not available. Please upload documents first.")
                 return None
             return self.rag_graph
         else:
             return self.get_search_graph()
     
-    def get_graph_for_mode(self, mode):
+    def get_graph_for_mode(self, mode):  ## can delete this function but not sure now
         if mode == "rag" and self.rag_graph:
             return self.rag_graph
         return self.get_search_graph()
     
-    def get_current_graph(self):
-        return self.get_graph_for_mode(self.current_mode)
-    
     def set_mode(self, mode):
         self.current_mode = mode
-        
 
 ## User data collection
 with st.sidebar:
@@ -72,25 +71,22 @@ if groq_api_key and validate_groq_key(groq_api_key):
         st.session_state.graph_manager = GraphManager(groq_api_key, model_name)
     graph_manager = st.session_state.graph_manager
 else:
-    st.error("❌ Invalid Groq API key. Please check and try again.")
+    st.error("Invalid Groq API key. Please check and try again.")
     st.stop()
 
 ## Thread Management Functions
-def get_thread_mode(thread_id):
-    """Extract mode from thread ID"""
+def get_thread_mode(thread_id): ## get the mode of the thread
     return "rag" if thread_id.startswith("rag_") else "search"
 
-def create_thread_id(mode):
-    """Create a properly formatted thread ID"""
+def create_thread_id(mode):  ## create thread id based on mode
     return f"{mode}_{generate_unique_id()}"
 
-def delete_thread(thread_id):
-    """Delete a specific thread from the appropriate database"""
+def delete_thread(thread_id):  ## delete thread from the database
     mode = get_thread_mode(thread_id)
     memory = get_memory_for_mode(mode)
     try:
-        conn = memory.conn
-        cursor = conn.cursor()
+        conn = memory.conn  ## get the connection from the memory
+        cursor = conn.cursor()  ## create a cursor for executing SQL statements
         cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
         conn.commit()
         return True
@@ -99,66 +95,52 @@ def delete_thread(thread_id):
         return False
 
 def load_conversation(thread_id):
-    """Load conversation from the appropriate graph's memory"""
-    try:
-        # Get the appropriate graph for this thread
-        graph = st.session_state.graph_manager.get_graph_for_thread(thread_id)
-        if not graph:
-            return []
-        
-        # Get conversation from graph's memory
-        state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
-        messages = state.values.get('messages', [])
-        
-        # Convert LangChain messages to display format
-        display_messages = []
-        for msg in messages:
-            if isinstance(msg, HumanMessage):
-                display_messages.append({"role": "user", "content": msg.content})
-            elif isinstance(msg, AIMessage):
-                display_messages.append({"role": "assistant", "content": msg.content})
-        
-        return display_messages
-    except Exception as e:
-        st.error(f"Error loading conversation: {e}")
+    # Get the appropriate graph for this thread
+    graph = st.session_state.graph_manager.get_graph_for_thread(thread_id)
+    if not graph:
         return []
+    
+    # Get conversation from graph's memory
+    state = graph.get_state(config={'configurable': {'thread_id': thread_id}})
+    messages = state.values.get('messages', [])
+    
+    # Convert LangChain messages to display format
+    display_messages = []
+    for msg in messages:
+        if isinstance(msg, HumanMessage):
+            display_messages.append({"role": "user", "content": msg.content})
+        elif isinstance(msg, AIMessage):
+            display_messages.append({"role": "assistant", "content": msg.content})
+    
+    return display_messages
 
 def retrieve_all_threads():
-    """Retrieve all threads from both databases"""
     all_threads = set()
-    
-    try:
-        search_memory = get_search_memory()
-        for m in search_memory.list(None):
-            all_threads.add(m.config['configurable']['thread_id'])
-    except:
-        pass
-    
-    try:
-        rag_memory = get_rag_memory()
-        for m in rag_memory.list(None):
-            all_threads.add(m.config['configurable']['thread_id'])
-    except:
-        pass
-    
+    ## Retrieve all threads from both memories
+    search_memory = get_search_memory()
+    for m in search_memory.list(None):
+        all_threads.add(m.config['configurable']['thread_id'])
+
+    rag_memory = get_rag_memory()
+    for m in rag_memory.list(None):
+        all_threads.add(m.config['configurable']['thread_id'])
+
     return list(all_threads)
 
 def get_thread_preview(thread_id):
     """Get thread preview with mode indicator"""
-    try:
-        mode = get_thread_mode(thread_id)
-        mode_icon = "📄" if mode == "rag" else "🔍"
-        
-        messages = load_conversation(thread_id)
-        if messages and len(messages) > 0:
-            first_msg = messages[0]
-            content = first_msg["content"]
-            preview = content[:30] + "..." if len(content) > 30 else content
-            return f"{mode_icon} {preview}"
-        
-        return f"{mode_icon} Thread {thread_id[-8:]}"
-    except:
-        return f"Thread {thread_id[-8:]}"
+    mode = get_thread_mode(thread_id)
+    mode_icon = "📄" if mode == "rag" else "🔍"
+    
+    messages = load_conversation(thread_id)
+    if messages and len(messages) > 0:
+        first_msg = messages[0]
+        content = first_msg["content"]
+        preview = content[:30] + "..." if len(content) > 30 else content
+        return f"{mode_icon} {preview}"
+    
+    return f"{mode_icon} Thread {thread_id[-8:]}"
+
 
 ## Session State Initialization
 if "messages" not in st.session_state:
@@ -174,12 +156,9 @@ if 'uploaded_documents' not in st.session_state:
     st.session_state.uploaded_documents = []
 
 ## Document Management Functions
-def delete_document_from_storage(doc_name):
+def delete_document_from_storage():
     """Delete document from vector store"""
     try:
-        import shutil
-        import os
-        
         # For now, we'll clear the entire vector store when any document is deleted
         # This is because Chroma doesn't easily support selective document deletion
         vector_store_path = "./chroma_langchain_db"
@@ -199,42 +178,11 @@ def delete_document_from_storage(doc_name):
         st.error(f"Error deleting from storage: {e}")
         return False
 
-def delete_document(doc_name, index):
-    """Delete a specific document"""
-    try:
-        # Remove from session state
-        st.session_state.uploaded_documents.pop(index)
-        
-        # Delete from actual storage
-        delete_document_from_storage(doc_name)
-        
-        # If no documents left, clear RAG mode
-        if not st.session_state.uploaded_documents:
-            st.session_state.graph_manager.rag_graph = None
-            # Switch current thread to search mode if it was RAG
-            if get_thread_mode(st.session_state.thread_id) == "rag":
-                # Create new search thread
-                new_thread_id = create_thread_id("search")
-                st.session_state.thread_id = new_thread_id
-                st.session_state.messages = []
-                if new_thread_id not in st.session_state.thread_list:
-                    st.session_state.thread_list.append(new_thread_id)
-        
-        st.success(f"✅ Deleted {doc_name}")
-    except Exception as e:
-        st.error(f"❌ Error deleting document: {e}")
-
 def clear_all_documents():
     """Clear all documents and vector store"""
     try:
-        # Clear document list
-        st.session_state.uploaded_documents = []
-        
         # Clear vector store
-        delete_document_from_storage("all")
-        
-        # Clear RAG graph
-        st.session_state.graph_manager.rag_graph = None
+        delete_document_from_storage()
         
         # Switch to search mode if current thread is RAG
         if get_thread_mode(st.session_state.thread_id) == "rag":
@@ -255,13 +203,7 @@ with st.sidebar:
     if st.session_state.uploaded_documents:
         st.write("**Uploaded Documents:**")
         for i, doc_name in enumerate(st.session_state.uploaded_documents):
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"📄 {doc_name}")
-            with col2:
-                if st.button("🗑️", key=f"del_doc_{i}", help=f"Delete {doc_name}"):
-                    delete_document(doc_name, i)
-                    st.rerun()
+            st.write(f"📄{i+1} {doc_name}")
         
         if st.button("🗑️ Clear All Documents"):
             clear_all_documents()
@@ -349,7 +291,7 @@ with st.sidebar:
         
         if st.button("Delete All Empty Threads"):
             deleted_count = 0
-            for thread_id in st.session_state.thread_list.copy():
+            for thread_id in st.session_state.thread_list:
                 if thread_id != st.session_state.thread_id:
                     messages = load_conversation(thread_id)
                     if not messages:
@@ -362,8 +304,11 @@ with st.sidebar:
                 st.rerun()
 
 ## Display chat history
-for message in st.session_state.messages:
-    st.chat_message(message["role"]).markdown(message["content"])
+messages = load_conversation(st.session_state.thread_id)
+if messages not in st.session_state.messages:
+    st.session_state.messages = messages
+    for message in st.session_state.messages:
+        st.chat_message(message["role"]).markdown(message["content"])
 
 ## Chat Input Handling
 user_input = None
@@ -410,49 +355,29 @@ if user_input:
     
     CONFIG = {'configurable': {'thread_id': st.session_state.thread_id}}
     
-    # Create user message
-    user_message = HumanMessage(content=user_input)
-    
     with st.chat_message("user"):
         st.markdown(user_input)
     
     with st.chat_message("assistant"):
         with st.spinner("🤔 Thinking..."):
-            try:
-                # Get thread mode to determine input format
-                thread_mode = get_thread_mode(st.session_state.thread_id)
+            # Get thread mode to determine input format
+            thread_mode = get_thread_mode(st.session_state.thread_id)
+            graph_input = {
+                "question": user_input
+            }
+            
+            # Invoke the graph - it will automatically load conversation history via checkpointer
+            result = current_graph.invoke(graph_input, config=CONFIG)
+            
+            # Extract response
+            response_content = result.get("generation", "Sorry, I couldn't generate a response.")
+            
+            # Display response
+            st.markdown(response_content)
+            
+            # Update session state messages for display purposes
+            st.session_state.messages.append({"role": "user", "content": user_input})
+            st.session_state.messages.append({"role": "assistant", "content": response_content})
                 
-                if thread_mode == "rag":
-                    # For RAG: Use the question format and let the graph handle history via checkpointer
-                    graph_input = {
-                        "question": user_input,
-                        "messages": [user_message]  # Current message
-                    }
-                else:
-                    # For Search: Use the question format and let the graph handle history via checkpointer
-                    graph_input = {
-                        "question": user_input,
-                        "messages": [user_message]  # Current message
-                    }
-                
-                # Invoke the graph - it will automatically load conversation history via checkpointer
-                result = current_graph.invoke(graph_input, config=CONFIG)
-                
-                # Extract response
-                response_content = result.get("generation", "Sorry, I couldn't generate a response.")
-                
-                # Display response
-                st.markdown(response_content)
-                
-                # Update session state messages for display purposes
-                st.session_state.messages.append({"role": "user", "content": user_input})
-                st.session_state.messages.append({"role": "assistant", "content": response_content})
-                
-            except Exception as e:
-                error_msg = f"❌ Error generating response: {str(e)}"
-                st.error(error_msg)
-                st.session_state.messages.append({"role": "user", "content": user_input})
-                st.session_state.messages.append({"role": "assistant", "content": error_msg})
-    
     # Rerun to refresh the display
     st.rerun()
