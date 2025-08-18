@@ -1,15 +1,17 @@
 from typing_extensions import TypedDict, Optional
+from typing import List
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
 from langchain_tavily import TavilySearch
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 import json
 import os
-from database.get_sql import get_sqlite_connection
+from database.get_sql import get_search_memory
 
-memory = get_sqlite_connection()
+memory = get_search_memory()
 
 load_dotenv()
 
@@ -20,9 +22,10 @@ def model_create(groq_api_key, model_name):
     search_tool = TavilySearch()
 
     class AgentState(TypedDict):
-        generated_answer: str
+        generation: str
         question: str
         search_results: Optional[list[str]]
+        messages: List[BaseMessage]
 
     graph = StateGraph(AgentState)
 
@@ -79,14 +82,22 @@ def model_create(groq_api_key, model_name):
             input_variables=["question", "search_results"],
         )
         chain = prompt | llm | StrOutputParser()
-        
+        question = state['question']
+        search_results = state.get('search_results', [])
+        messages = state.get('messages', [])
+
         search_results = state.get('search_results', [])
         
-        answer = chain.invoke({"question": state['question'], "search_results": "\n\n".join(search_results)})
-        state['generated_answer'] = answer
-        state['search_results'] = search_results
-        
-        return state
+        answer = chain.invoke({"question": question, "search_results": "\n\n".join(search_results)})
+        messages.append(HumanMessage(content=question))
+        messages.append(AIMessage(content=answer))
+
+        return {
+        "generation": answer,
+        "search_results": search_results,
+        "question": question,
+        "messages": messages
+        }
 
     graph.add_node("web_search", web_search)
     graph.add_node("generate", generate)

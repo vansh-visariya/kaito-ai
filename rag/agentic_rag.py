@@ -1,5 +1,5 @@
 from typing import List
-from typing_extensions import TypedDict
+from typing_extensions import TypedDict, Annotated
 from langgraph.graph import StateGraph, START, END
 from langchain_groq import ChatGroq
 from dotenv import load_dotenv
@@ -10,7 +10,9 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.retrievers import TavilySearchAPIRetriever
 from langchain.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from io import BytesIO
+from database.get_sql import get_rag_memory
+from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
+from langgraph.graph.message import add_messages
 import tempfile
 import os
 
@@ -19,6 +21,7 @@ load_dotenv()
 def create_rag_chain(groq_api_key, model_name, files):
     os.environ["GROQ_API_KEY"] = groq_api_key
     llm = ChatGroq(model=model_name)
+    memory = get_rag_memory()
 
     embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 
@@ -60,6 +63,7 @@ def create_rag_chain(groq_api_key, model_name, files):
         question: str    ## User question
         documents: List  ## List of documents have (page_content, metadata)
         generation: str   ## Generated answer
+        messages: Annotated[List[BaseMessage],add_messages]
 
     def retrieve_from_vector_store(question: str):
         docs = retriever.invoke(question)
@@ -224,6 +228,12 @@ def create_rag_chain(groq_api_key, model_name, files):
         answer = rag_chain.invoke({"context": context, "question": question})
         
         return {"question": question, "documents": documents, "generation": answer}
+    
+    def update_memory(state: GraphState):
+        messages = state.get('messages', [])
+        messages.append(HumanMessage(content=state['question']))
+        messages.append(AIMessage(content=state['generation']))
+        return {"messages": messages}
 
     def grade_generation(state: GraphState):
         question = state["question"]
@@ -231,12 +241,17 @@ def create_rag_chain(groq_api_key, model_name, files):
         generation = state["generation"]
         
         if not is_grounded(generation, documents):
-            return "not_grounded"
+            ans =  "not grounded"
+            return ans
         
         if not answers_question(generation, question):
-            return "not_useful"
+            ans = "not useful"
+            return ans
         
-        return "useful"
+        ans = "useful"
+        if ans == "useful":
+            update_memory(state)
+            return ans
 
     def decide_to_generate(state: GraphState):
         if state["documents"]:
@@ -279,5 +294,5 @@ def create_rag_chain(groq_api_key, model_name, files):
     )
 
     # Compile the graph
-    app = workflow.compile()
+    app = workflow.compile(checkpointer=memory)
     return app

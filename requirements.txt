@@ -8,6 +8,7 @@ langchain-tavily
 langchain-community
 langchain-chroma
 PyPDF2
-SpeechRecognition
-pydub
-audio-recorder-streamlit
+sentence-transformers 
+tavily-python
+langchain-huggingface  
+pypdf                  

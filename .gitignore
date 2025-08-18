@@ -3,3 +3,6 @@ __pycache__
 chatbot.db
 chatbot.db-shm
 chatbot.db-wal
+rag_chatbot.db
+chroma_langchain_db
+search_chatbot.db
