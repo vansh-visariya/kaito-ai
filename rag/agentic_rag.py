@@ -15,9 +15,11 @@ from langchain_core.messages import BaseMessage, AIMessage, HumanMessage
 from langgraph.graph.message import add_messages
 import tempfile
 import os
+import streamlit as st
 
-
-embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
+@st.cache_resource
+def setup_embeddings():
+    return HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 
 def setup_vector_store(files):
     ## Load documents
@@ -38,7 +40,7 @@ def setup_vector_store(files):
         chunk_overlap=200
     )
     splits = text_splitter.split_documents(all_docs)
-    
+    embeddings = setup_embeddings()
     ## Create vector store
     vector_store = Chroma.from_documents(
         documents=splits,
