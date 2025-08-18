@@ -1,6 +1,7 @@
-# 🤖 AI ChatBot - Intelligent Search & Document Analysis
+# 🤖 Kaito-AI - Intelligent Search & Document Analysis
 
 A powerful AI-powered chatbot built with Streamlit that combines web search capabilities with document analysis using Retrieval-Augmented Generation (RAG). This application provides intelligent responses by either searching the web for current information or analyzing uploaded documents.
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://kaito-ai.streamlit.app)
 
 ![ChatBot Interface](assets/app.PNG)
 
