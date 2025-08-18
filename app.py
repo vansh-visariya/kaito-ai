@@ -13,11 +13,6 @@ st.set_page_config(
     layout="wide",                     # "centered" (default) or "wide"
 )
 
-# LangSmith configuration
-os.environ["LANGCHAIN_TRACING_V2"] = "true"
-os.environ["LANGCHAIN_API_KEY"] = os.getenv("LANGCHAIN_API_KEY")
-os.environ["LANGCHAIN_PROJECT"] = "chatbot"
-
 st.title("🤖 ChaBot")
 
 ## Graph Manager for proper separation
@@ -25,6 +20,7 @@ class GraphManager:
     def __init__(self, groq_api_key, model_name):
         self.groq_api_key = groq_api_key
         self.model_name = model_name
+        self.tavily_api_key = tavily_api_key
         self.search_graph = None
         self.rag_graph = None
         self.current_mode = "search"
@@ -32,13 +28,13 @@ class GraphManager:
         
     def get_search_graph(self):
         if not self.search_graph:
-            self.search_graph = model_create(self.groq_api_key, self.model_name)
+            self.search_graph = model_create(self.groq_api_key, self.model_name, self.tavily_api_key)
         return self.search_graph
     
     def get_rag_graph(self, documents=None):
         if documents:
             self.uploaded_docs = documents
-            self.rag_graph = create_rag_chain(self.groq_api_key, self.model_name, documents)
+            self.rag_graph = create_rag_chain(self.groq_api_key, self.model_name, documents, self.tavily_api_key)
         return self.rag_graph
     
     def get_graph_for_thread(self, thread_id):
@@ -64,11 +60,18 @@ with st.sidebar:
     st.header("🔑 Configuration")
     groq_api_key = st.text_input("Enter your Groq API key", type="password")
     model_name = st.text_input("Enter the model you want to use", value="gemma2-9b-it")
+    langchain_api_key = st.text_input("Enter your LangChain API key", type="password")
+    tavily_api_key = st.text_input("Enter your Tavily API key", type="password")
+
+# LangSmith configuration
+os.environ["LANGCHAIN_TRACING_V2"] = "true"
+os.environ["LANGCHAIN_API_KEY"] = langchain_api_key
+os.environ["LANGCHAIN_PROJECT"] = "chatbot"
 
 ## Validate groq key and initialize graph manager
 if groq_api_key and validate_groq_key(groq_api_key):
     if 'graph_manager' not in st.session_state:
-        st.session_state.graph_manager = GraphManager(groq_api_key, model_name)
+        st.session_state.graph_manager = GraphManager(groq_api_key, model_name, tavily_api_key)
     graph_manager = st.session_state.graph_manager
 else:
     st.error("Invalid Groq API key. Please check and try again.")

@@ -16,7 +16,6 @@ from langgraph.graph.message import add_messages
 import tempfile
 import os
 
-load_dotenv()
 
 embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-mpnet-base-v2")
 tavily_retriever = TavilySearchAPIRetriever(k=3)
@@ -50,7 +49,8 @@ def setup_vector_store(files):
     
     return vector_store
 
-def create_rag_chain(groq_api_key, model_name, files):
+def create_rag_chain(groq_api_key, model_name, files, tavily_api_key):
+    os.environ["TAVILY_API_KEY"] = tavily_api_key
     os.environ["GROQ_API_KEY"] = groq_api_key
     llm = ChatGroq(model=model_name)
     memory = get_rag_memory()

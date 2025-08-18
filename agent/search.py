@@ -14,10 +14,9 @@ from database.get_sql import get_search_memory
 
 memory = get_search_memory()
 
-load_dotenv()
-
-def model_create(groq_api_key, model_name):
+def model_create(groq_api_key, model_name, tavily_api_key):
     os.environ["GROQ_API_KEY"] = groq_api_key
+    os.environ["TAVILY_API_KEY"] = tavily_api_key
     llm = ChatGroq(model=model_name)
 
     search_tool = TavilySearch()
