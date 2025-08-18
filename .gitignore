@@ -1,8 +1,15 @@
 .env
 __pycache__
-chatbot.db
-chatbot.db-shm
-chatbot.db-wal
-rag_chatbot.db
-chroma_langchain_db
+
+## search database
 search_chatbot.db
+search_chatbot.db-shm
+search_chatbot.db-wal
+
+## rag database
+rag_chatbot.db
+rag_chatbot.db-shm
+rag_chatbot.db-wal
+
+## chroma vector store
+chroma_langchain_db

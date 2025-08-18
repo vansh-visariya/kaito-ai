@@ -6,6 +6,7 @@ from rag.agentic_rag import create_rag_chain
 from database.get_sql import get_search_memory, get_rag_memory
 import shutil
 import os
+import gc
 
 st.set_page_config(
     page_title="ChatBot",       # Title on the browser tab
@@ -13,11 +14,11 @@ st.set_page_config(
     layout="wide",                     # "centered" (default) or "wide"
 )
 
-st.title("🤖 ChaBot")
+st.title("🤖 ChatBot")
 
 ## Graph Manager for proper separation
 class GraphManager:
-    def __init__(self, groq_api_key, model_name):
+    def __init__(self, groq_api_key, model_name, tavily_api_key):
         self.groq_api_key = groq_api_key
         self.model_name = model_name
         self.tavily_api_key = tavily_api_key
@@ -130,8 +131,7 @@ def retrieve_all_threads():
 
     return list(all_threads)
 
-def get_thread_preview(thread_id):
-    """Get thread preview with mode indicator"""
+def get_thread_preview(thread_id): ## get the preview of the thread (makes the selectbox look better)
     mode = get_thread_mode(thread_id)
     mode_icon = "📄" if mode == "rag" else "🔍"
     
@@ -160,18 +160,17 @@ if 'uploaded_documents' not in st.session_state:
 
 ## Document Management Functions
 def delete_document_from_storage():
-    """Delete document from vector store"""
     try:
-        # For now, we'll clear the entire vector store when any document is deleted
+        # Delete the vector store
         # This is because Chroma doesn't easily support selective document deletion
         vector_store_path = "./chroma_langchain_db"
+        st.session_state.graph_manager.rag_graph = None
+        gc.collect()
         if os.path.exists(vector_store_path):
             shutil.rmtree(vector_store_path)
             
         # If there are remaining documents, recreate the vector store
         if st.session_state.uploaded_documents:
-            # We need to recreate the RAG graph with remaining documents
-            # This requires storing the actual document objects, not just names
             st.warning("Vector store cleared. Please re-upload remaining documents.")
             st.session_state.uploaded_documents = []
             st.session_state.graph_manager.rag_graph = None
@@ -182,7 +181,6 @@ def delete_document_from_storage():
         return False
 
 def clear_all_documents():
-    """Clear all documents and vector store"""
     try:
         # Clear vector store
         delete_document_from_storage()
@@ -288,7 +286,7 @@ with st.sidebar:
             st.rerun()
 
 ## Thread Cleanup
-with st.sidebar:
+with st.sidebar:   ## delete all the empty threads that were created but not used
     with st.expander("🧹 Thread Cleanup"):
         st.write(f"Total threads: {len(st.session_state.thread_list)}")
         
@@ -368,19 +366,14 @@ if user_input:
             graph_input = {
                 "question": user_input
             }
-            
-            # Invoke the graph - it will automatically load conversation history via checkpointer
             result = current_graph.invoke(graph_input, config=CONFIG)
             
-            # Extract response
+            # Extract response, defaulting to a generic message if generation is missing or empty
             response_content = result.get("generation", "Sorry, I couldn't generate a response.")
-            
-            # Display response
+
             st.markdown(response_content)
             
-            # Update session state messages for display purposes
+            # Update session state messages
             st.session_state.messages.append({"role": "user", "content": user_input})
             st.session_state.messages.append({"role": "assistant", "content": response_content})
-                
-    # Rerun to refresh the display
     st.rerun()
