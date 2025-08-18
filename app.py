@@ -1,3 +1,8 @@
+__import__('pysqlite3')
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+## this is for streamlit deploy
+
 import streamlit as st
 from agent.search import model_create
 from utility import generate_unique_id, validate_groq_key, get_memory_for_mode
