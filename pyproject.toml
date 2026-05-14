@@ -1,0 +1,32 @@
+[project]
+name = "kaito-ai"
+version = "1.0.0"
+description = "AI-powered chatbot with web search and document analysis (RAG)"
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.10"
+
+dependencies = [
+    "streamlit",
+    "langchain",
+    "langgraph",
+    "langchain-groq",
+    "python-dotenv",
+    "langgraph-checkpoint-sqlite",
+    "langchain-tavily",
+    "langchain-community",
+    "langchain-chroma",
+    "sentence-transformers",
+    "tavily-python",
+    "langchain-huggingface",
+    "pypdf",
+    "requests",
+    # pysqlite3-binary is Linux-only; required on Streamlit Cloud
+    "pysqlite3-binary ; sys_platform == 'linux'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff",
+    "mypy",
+]

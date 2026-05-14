@@ -1,5 +1,4 @@
-pysqlite3-binary
-streamlit 
+streamlit
 langchain
 langgraph
 langchain-groq
@@ -8,7 +7,9 @@ langgraph-checkpoint-sqlite
 langchain-tavily
 langchain-community
 langchain-chroma
-sentence-transformers 
+sentence-transformers
 tavily-python
-langchain-huggingface  
-pypdf                  
+langchain-huggingface
+pypdf
+requests
+pysqlite3-binary ; sys_platform == "linux"
