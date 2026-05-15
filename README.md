@@ -10,17 +10,22 @@ An AI-powered chatbot with a **FastAPI backend** and a **static HTML/CSS/JS fron
 - **Smart web search** — the agent decides when to hit Tavily vs. answer from its own knowledge
 - **Conversation memory** — full thread history persisted in SQLite across requests
 - **Multi-thread** — create and switch between unlimited conversation threads
+- **Conversation Summarisation** — automatically summarises long chat histories to prevent LLM context overflow
 
 ### 📄 Document Analysis (RAG Mode)
 - **Upload PDFs** — one or more documents processed on upload
-- **Semantic search** — HuggingFace embeddings (`all-mpnet-base-v2`) + ChromaDB vector store
+- **Hybrid Search (BM25 + Vector)** — uses Reciprocal-Rank Fusion to combine exact keyword matching (BM25) with semantic embeddings (`all-mpnet-base-v2` via ChromaDB) for superior recall
+- **Cross-Encoder Re-ranking** — uses a HuggingFace Cross-Encoder to re-rank the top candidates before they are passed to the LLM, reducing hallucinations
+- **Source Citations** — accurately tracks and displays the source file and page number for every document referenced in the LLM's response
 - **Tool-calling agent** — LLM explicitly calls `document_retriever`, falls back to web search only when needed
 - **Separate thread** — each PDF upload starts a fresh RAG conversation
 
-### 💬 Thread Management
+### 💬 UI & Thread Management
+- **Streaming Responses (SSE)** — tokens stream in real-time to the frontend UI
+- **Multi-User Session Support** — multiple users can use the app simultaneously thanks to secure cookie-based session management
+- **Rich Markdown** — syntax-highlighted code blocks, tables, and lists rendered cleanly using `marked.js`
 - Create, switch, and delete conversation threads
 - Clean up empty threads in one click
-- Mode badge shows whether a thread is Search or RAG
 
 ### ⚙️ Tech Stack
 | Layer | Technology |
@@ -29,7 +34,8 @@ An AI-powered chatbot with a **FastAPI backend** and a **static HTML/CSS/JS fron
 | Agent orchestration | LangGraph `create_react_agent` |
 | Web search | Tavily API |
 | PDF loading | LangChain `PyPDFLoader` |
-| Embeddings | HuggingFace `sentence-transformers/all-mpnet-base-v2` |
+| Hybrid Search | `rank-bm25` (Keyword) + `all-mpnet-base-v2` (Semantic) |
+| Re-ranking | HuggingFace `cross-encoder/ms-marco-MiniLM-L-6-v2` |
 | Vector store | ChromaDB |
 | Memory | LangGraph `SqliteSaver` (SQLite) |
 | Backend | FastAPI + Uvicorn |
@@ -51,7 +57,7 @@ kaito-ai/
 │   ├── __init__.py
 │   └── agent.py            # Unified agent module
 │                           #   make_web_search_tool()   — shared Tavily tool
-│                           #   build_vector_store()     — PDF → ChromaDB
+│                           #   build_hybrid_retriever() — BM25 + Vector + Re-ranking
 │                           #   create_search_agent()    — tools: [tavily_search]
 │                           #   create_rag_agent()       — tools: [document_retriever, tavily_search]
 │
@@ -170,7 +176,7 @@ The FastAPI backend exposes the following endpoints (also served at `/docs` via 
 
 | Method | Path | Description |
 |---|---|---|
-| `POST` | `/api/config` | Set API keys & model; validates Groq key |
+| `POST` | `/api/config` | Set API keys & model; validates Groq key and sets a session cookie |
 | `GET` | `/api/config/status` | Check if session is configured |
 | `GET` | `/api/threads` | List all conversation threads |
 | `POST` | `/api/threads/new` | Start a new search thread |
@@ -178,6 +184,7 @@ The FastAPI backend exposes the following endpoints (also served at `/docs` via 
 | `DELETE` | `/api/threads/{id}` | Delete a specific thread |
 | `DELETE` | `/api/threads` | Delete all empty threads |
 | `POST` | `/api/chat` | Send a message, get a response |
+| `POST` | `/api/chat/stream` | Server-Sent Events endpoint to stream tokens and tool actions |
 | `GET` | `/api/chat/{id}/history` | Load message history for a thread |
 | `POST` | `/api/documents/upload` | Upload PDFs → build RAG chain |
 | `GET` | `/api/documents` | List uploaded document names |

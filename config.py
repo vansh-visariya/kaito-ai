@@ -10,19 +10,15 @@ import os
 from enum import Enum
 from typing import Optional
 
-# ---------------------------------------------------------------------------
 # Protobuf compatibility fix
 # chromadb bundles opentelemetry-proto whose _pb2.py files were generated
 # with an old protoc version; the pure-Python protobuf implementation is
 # fully compatible and avoids the "Descriptors cannot be created directly"
 # TypeError that appears with protobuf >= 4 on Python 3.13.
 # This MUST be set before any chromadb / opentelemetry import.
-# ---------------------------------------------------------------------------
 os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
 
-# ---------------------------------------------------------------------------
 # Logging
-# ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)-25s | %(levelname)-7s | %(message)s",
@@ -30,9 +26,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
 # Enums
-# ---------------------------------------------------------------------------
 class Mode(str, Enum):
     """Operational mode of the chatbot."""
 
@@ -40,9 +34,7 @@ class Mode(str, Enum):
     RAG = "rag"
 
 
-# ---------------------------------------------------------------------------
 # Application Constants
-# ---------------------------------------------------------------------------
 DEFAULT_MODEL: str = "llama-3.1-8b-instant"
 DEFAULT_CHUNK_SIZE: int = 1000
 DEFAULT_CHUNK_OVERLAP: int = 200
@@ -62,9 +54,7 @@ THREAD_PREFIX: dict[Mode, str] = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Environment helpers
-# ---------------------------------------------------------------------------
 def configure_environment(
     groq_api_key: str,
     tavily_api_key: str,

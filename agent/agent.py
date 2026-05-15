@@ -46,24 +46,18 @@ from database.memory import get_rag_memory, get_search_memory
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # Constants
-# ---------------------------------------------------------------------------
 SUMMARISE_AFTER = 20   # number of Human+AI messages before summarisation kicks in
 BM25_WEIGHT     = 0.4  # weight given to BM25 results vs vector results (0.6)
 
 
-# ---------------------------------------------------------------------------
 # Shared: web search tool
-# ---------------------------------------------------------------------------
 def make_web_search_tool() -> TavilySearch:
     """Return a configured Tavily web-search tool (4 results)."""
     return TavilySearch(max_results=4)
 
 
-# ---------------------------------------------------------------------------
 # RAG-only: embeddings & reranker
-# ---------------------------------------------------------------------------
 @lru_cache(maxsize=1)
 def _load_embeddings() -> HuggingFaceEmbeddings:
     logger.info("Loading embedding model: %s", DEFAULT_EMBEDDING_MODEL)
@@ -77,9 +71,7 @@ def _load_reranker():
     return CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
-# ---------------------------------------------------------------------------
 # RAG-only: hybrid BM25 + vector retriever (#6)
-# ---------------------------------------------------------------------------
 class _HybridRetriever(BaseRetriever):
     """Weighted ensemble of BM25 (keyword) + ChromaDB (semantic) retrievers.
 
@@ -190,9 +182,7 @@ def build_hybrid_retriever(file_paths: list[str]) -> _HybridRetriever:
     )
 
 
-# ---------------------------------------------------------------------------
 # Source extraction helper
-# ---------------------------------------------------------------------------
 def _extract_sources(messages: list) -> list[dict]:
     """Pull document citations out of ToolMessage artifacts."""
     sources: list[dict] = []
@@ -215,9 +205,7 @@ def _extract_sources(messages: list) -> list[dict]:
     return sources
 
 
-# ---------------------------------------------------------------------------
 # Conversation summarisation helper (#5)
-# ---------------------------------------------------------------------------
 def _maybe_summarise(agent, llm, config: dict | None) -> None:
     """Summarise old messages when a thread grows beyond SUMMARISE_AFTER turns.
 
@@ -271,9 +259,7 @@ def _maybe_summarise(agent, llm, config: dict | None) -> None:
         logger.warning("update_state failed: %s", exc)
 
 
-# ---------------------------------------------------------------------------
 # Shared: agent wrapper
-# ---------------------------------------------------------------------------
 class _AgentWrapper:
     """Adapts the ReAct agent to the question/generation interface.
 
@@ -317,9 +303,7 @@ class _AgentWrapper:
         return self._agent.get_state(config)
 
 
-# ---------------------------------------------------------------------------
 # System prompts
-# ---------------------------------------------------------------------------
 _SEARCH_SYSTEM = SystemMessage(content="""\
 You are a knowledgeable AI assistant with access to a live web-search tool.
 
@@ -344,9 +328,7 @@ Rules:
 """)
 
 
-# ---------------------------------------------------------------------------
 # Public factories
-# ---------------------------------------------------------------------------
 def create_search_agent(
     groq_api_key: str,
     model_name:   str,

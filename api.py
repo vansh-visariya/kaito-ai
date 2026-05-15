@@ -22,9 +22,7 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-# ---------------------------------------------------------------------------
 # pysqlite3 shim — Linux only
-# ---------------------------------------------------------------------------
 if sys.platform == "linux":
     try:
         __import__("pysqlite3")
@@ -32,9 +30,7 @@ if sys.platform == "linux":
     except ImportError:
         pass
 
-# ---------------------------------------------------------------------------
 # Protobuf fix — MUST be before any chromadb import
-# ---------------------------------------------------------------------------
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie, Request, Response, Depends
@@ -56,18 +52,14 @@ from config import (
 from database.memory import get_rag_memory, get_search_memory
 from utility import generate_unique_id, get_memory_for_mode, validate_groq_key
 
-# ---------------------------------------------------------------------------
 # Logging
-# ---------------------------------------------------------------------------
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)-25s | %(levelname)-7s | %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
 # App
-# ---------------------------------------------------------------------------
 app = FastAPI(title="Kaito-AI API", version="2.0.0")
 
 app.add_middleware(
@@ -78,9 +70,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---------------------------------------------------------------------------
 # Multi-User Session Store (#4)
-# ---------------------------------------------------------------------------
 class Session:
     def __init__(self) -> None:
         self.groq_api_key: str = ""
@@ -111,9 +101,7 @@ def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
     return session
 
 
-# ---------------------------------------------------------------------------
 # Pydantic schemas
-# ---------------------------------------------------------------------------
 class ConfigRequest(BaseModel):
     groq_api_key: str
     model_name: str = "llama-3.1-8b-instant"
@@ -130,9 +118,7 @@ class ThreadDeleteRequest(BaseModel):
     thread_id: str
 
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 def _create_thread_id(mode: Mode) -> str:
     return f"{THREAD_PREFIX[mode]}{generate_unique_id()}"
 
@@ -194,9 +180,7 @@ def _thread_preview(session: Session, thread_id: str) -> str:
     return f"{icon} Thread {thread_id[-8:]}"
 
 
-# ---------------------------------------------------------------------------
 # Routes — Config
-# ---------------------------------------------------------------------------
 @app.post("/api/config")
 async def configure(req: ConfigRequest, response: Response):
     """Set API keys and model. Creates a new session and returns a cookie."""
@@ -256,9 +240,7 @@ async def config_status(session_id: Optional[str] = Cookie(default=None)):
     }
 
 
-# ---------------------------------------------------------------------------
 # Routes — Threads
-# ---------------------------------------------------------------------------
 @app.get("/api/threads")
 async def list_threads(session: Session = Depends(get_session)):
     threads = []
@@ -320,9 +302,7 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
     return {"deleted": deleted, "count": len(deleted)}
 
 
-# ---------------------------------------------------------------------------
 # Routes — Chat
-# ---------------------------------------------------------------------------
 @app.post("/api/chat")
 async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     """Blocking chat — returns full response in one JSON object."""
@@ -420,9 +400,7 @@ async def chat_history(thread_id: str, session: Session = Depends(get_session)):
     return {"thread_id": thread_id, "messages": messages}
 
 
-# ---------------------------------------------------------------------------
 # Routes — Documents (RAG)
-# ---------------------------------------------------------------------------
 @app.post("/api/documents/upload")
 async def upload_documents(files: list[UploadFile] = File(...), session: Session = Depends(get_session)):
     """Save uploaded PDFs to temp files, build the RAG chain, then clean up."""
@@ -499,7 +477,5 @@ async def clear_documents(session: Session = Depends(get_session)):
     return {"cleared": True, "thread_id": tid}
 
 
-# ---------------------------------------------------------------------------
 # Serve static frontend
-# ---------------------------------------------------------------------------
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
