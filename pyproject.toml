@@ -25,6 +25,7 @@ dependencies = [
     "requests",
     # pysqlite3-binary is Linux-only (no Windows wheels)
     "pysqlite3-binary ; sys_platform == 'linux'",
+    "rank-bm25>=0.2.2",
 ]
 
 [project.optional-dependencies]

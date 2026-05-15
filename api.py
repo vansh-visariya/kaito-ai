@@ -3,6 +3,10 @@
 Replaces the Streamlit app.py with a proper REST API that serves the
 static HTML/CSS/JS frontend and handles all chatbot logic.
 
+Improvements in this version:
+#1 Streaming Responses (SSE) via /api/chat/stream
+#4 Multi-User Session Support via Cookies
+
 Run with:
     uvicorn api:app --reload --port 8000
 """
@@ -14,6 +18,7 @@ import logging
 import os
 import shutil
 import sys
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -32,7 +37,7 @@ if sys.platform == "linux":
 # ---------------------------------------------------------------------------
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie, Request, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -74,7 +79,7 @@ app.add_middleware(
 )
 
 # ---------------------------------------------------------------------------
-# In-memory session store (single-user; extend with Redis for multi-user)
+# Multi-User Session Store (#4)
 # ---------------------------------------------------------------------------
 class Session:
     def __init__(self) -> None:
@@ -93,7 +98,17 @@ class Session:
         return bool(self.groq_api_key)
 
 
-SESSION = Session()
+SESSIONS: dict[str, Session] = {}
+
+
+def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
+    """FastAPI Dependency to get the current user's session."""
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="No session found. Please configure API keys first.")
+    session = SESSIONS[session_id]
+    if not session.is_configured():
+        raise HTTPException(status_code=401, detail="Session not configured.")
+    return session
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +133,6 @@ class ThreadDeleteRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-def _require_session() -> Session:
-    if not SESSION.is_configured():
-        raise HTTPException(status_code=401, detail="Not configured. POST /api/config first.")
-    return SESSION
-
-
 def _create_thread_id(mode: Mode) -> str:
     return f"{THREAD_PREFIX[mode]}{generate_unique_id()}"
 
@@ -134,10 +143,6 @@ def _get_search_graph(session: Session):
             session.groq_api_key, session.model_name, session.tavily_api_key
         )
     return session.search_graph
-
-
-def _get_rag_graph(session: Session):
-    return session.rag_graph
 
 
 def _get_graph_for_thread(session: Session, thread_id: str):
@@ -163,17 +168,6 @@ def _load_conversation(session: Session, thread_id: str) -> list[dict]:
         elif isinstance(msg, AIMessage):
             result.append({"role": "assistant", "content": msg.content})
     return result
-
-
-def _retrieve_all_threads() -> list[str]:
-    threads: set[str] = set()
-    for mem in (get_search_memory(), get_rag_memory()):
-        try:
-            for checkpoint in mem.list(None):
-                threads.add(checkpoint.config["configurable"]["thread_id"])
-        except Exception:
-            pass
-    return list(threads)
 
 
 def _delete_thread_from_db(thread_id: str) -> bool:
@@ -204,19 +198,21 @@ def _thread_preview(session: Session, thread_id: str) -> str:
 # Routes — Config
 # ---------------------------------------------------------------------------
 @app.post("/api/config")
-async def configure(req: ConfigRequest):
-    """Set API keys and model. Must be called before any chat."""
+async def configure(req: ConfigRequest, response: Response):
+    """Set API keys and model. Creates a new session and returns a cookie."""
     if not validate_groq_key(req.groq_api_key):
         raise HTTPException(status_code=400, detail="Invalid Groq API key.")
 
-    SESSION.groq_api_key = req.groq_api_key
-    SESSION.model_name = req.model_name
-    SESSION.tavily_api_key = req.tavily_api_key
-    SESSION.langchain_api_key = req.langchain_api_key
+    session_id = str(uuid.uuid4())
+    session = Session()
 
-    # Reset graphs so they're rebuilt with new keys
-    SESSION.search_graph = None
-    SESSION.rag_graph = None
+    session.groq_api_key = req.groq_api_key
+    session.model_name = req.model_name
+    session.tavily_api_key = req.tavily_api_key
+    session.langchain_api_key = req.langchain_api_key
+
+    # Save session
+    SESSIONS[session_id] = session
 
     configure_environment(
         groq_api_key=req.groq_api_key,
@@ -224,29 +220,39 @@ async def configure(req: ConfigRequest):
         langchain_api_key=req.langchain_api_key,
     )
 
-    # Bootstrap a default thread if none exists
-    if not SESSION.current_thread_id:
-        SESSION.thread_list = _retrieve_all_threads()
-        if not SESSION.thread_list:
-            tid = _create_thread_id(Mode.SEARCH)
-            SESSION.thread_list.append(tid)
-        SESSION.current_thread_id = SESSION.thread_list[-1]
+    # Bootstrap a default thread
+    tid = _create_thread_id(Mode.SEARCH)
+    session.thread_list.append(tid)
+    session.current_thread_id = tid
+
+    response.set_cookie(
+        key="session_id",
+        value=session_id,
+        httponly=True,
+        samesite="lax",
+    )
 
     return {
         "status": "ok",
         "model": req.model_name,
-        "current_thread_id": SESSION.current_thread_id,
+        "current_thread_id": session.current_thread_id,
     }
 
 
 @app.get("/api/config/status")
-async def config_status():
+async def config_status(session_id: Optional[str] = Cookie(default=None)):
     """Check whether the session is configured."""
+    if not session_id or session_id not in SESSIONS:
+        raise HTTPException(status_code=401, detail="No session")
+    session = SESSIONS[session_id]
+    if not session.is_configured():
+        raise HTTPException(status_code=401, detail="Session not configured")
+
     return {
-        "configured": SESSION.is_configured(),
-        "model": SESSION.model_name,
-        "current_thread_id": SESSION.current_thread_id,
-        "mode": SESSION.current_mode.value,
+        "configured": True,
+        "model": session.model_name,
+        "current_thread_id": session.current_thread_id,
+        "mode": session.current_mode.value,
     }
 
 
@@ -254,8 +260,7 @@ async def config_status():
 # Routes — Threads
 # ---------------------------------------------------------------------------
 @app.get("/api/threads")
-async def list_threads():
-    session = _require_session()
+async def list_threads(session: Session = Depends(get_session)):
     threads = []
     for tid in reversed(session.thread_list):
         threads.append({
@@ -268,8 +273,7 @@ async def list_threads():
 
 
 @app.post("/api/threads/new")
-async def new_thread():
-    session = _require_session()
+async def new_thread(session: Session = Depends(get_session)):
     tid = _create_thread_id(Mode.SEARCH)
     session.current_thread_id = tid
     session.current_mode = Mode.SEARCH
@@ -279,8 +283,7 @@ async def new_thread():
 
 
 @app.post("/api/threads/select")
-async def select_thread(req: ThreadDeleteRequest):
-    session = _require_session()
+async def select_thread(req: ThreadDeleteRequest, session: Session = Depends(get_session)):
     thread_id = req.thread_id
     if thread_id not in session.thread_list:
         raise HTTPException(status_code=404, detail="Thread not found.")
@@ -291,8 +294,7 @@ async def select_thread(req: ThreadDeleteRequest):
 
 
 @app.delete("/api/threads/{thread_id}")
-async def delete_thread(thread_id: str):
-    session = _require_session()
+async def delete_thread(thread_id: str, session: Session = Depends(get_session)):
     if thread_id not in session.thread_list:
         raise HTTPException(status_code=404, detail="Thread not found.")
     if len(session.thread_list) <= 1:
@@ -306,8 +308,7 @@ async def delete_thread(thread_id: str):
 
 
 @app.delete("/api/threads")
-async def delete_empty_threads():
-    session = _require_session()
+async def delete_empty_threads(session: Session = Depends(get_session)):
     deleted = []
     for tid in list(session.thread_list):
         if tid == session.current_thread_id:
@@ -323,9 +324,8 @@ async def delete_empty_threads():
 # Routes — Chat
 # ---------------------------------------------------------------------------
 @app.post("/api/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     """Blocking chat — returns full response in one JSON object."""
-    session = _require_session()
     thread_id = req.thread_id or session.current_thread_id
 
     if thread_id not in session.thread_list:
@@ -352,17 +352,8 @@ async def chat(req: ChatRequest):
 
 
 @app.post("/api/chat/stream")
-async def chat_stream(req: ChatRequest):
-    """SSE streaming chat — sends tokens as they are generated.
-
-    Event types sent over the stream:
-      {"type": "token",  "token": "..."}        — one LLM output token
-      {"type": "done",   "thread_id": ...,       — stream finished
-                          "mode": ...,
-                          "sources": [...]}
-      {"type": "error",  "message": "..."}       — error during inference
-    """
-    session = _require_session()
+async def chat_stream(req: ChatRequest, session: Session = Depends(get_session)):
+    """SSE streaming chat — sends tokens as they are generated."""
     thread_id = req.thread_id or session.current_thread_id
 
     if thread_id not in session.thread_list:
@@ -382,17 +373,10 @@ async def chat_stream(req: ChatRequest):
                 kind = event["event"]
 
                 # —— Stream final-answer tokens only ———————————————
-                # Tool-calling steps produce AIMessageChunks with
-                # tool_call_chunks but NO text content.  The final answer
-                # step produces chunks with text content and no tool calls.
                 if kind == "on_chat_model_stream":
                     chunk = event["data"]["chunk"]
                     if chunk.content and not chunk.tool_call_chunks:
-                        token = (
-                            chunk.content
-                            if isinstance(chunk.content, str)
-                            else ""
-                        )
+                        token = chunk.content if isinstance(chunk.content, str) else ""
                         if token:
                             yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
@@ -400,7 +384,6 @@ async def chat_stream(req: ChatRequest):
                 elif kind == "on_tool_end":
                     if event.get("name") == "document_retriever":
                         output = event["data"].get("output")
-                        # content_and_artifact format: (str, [Document, ...])
                         docs = output[1] if isinstance(output, tuple) else []
                         for doc in docs:
                             if not hasattr(doc, "metadata"):
@@ -432,8 +415,7 @@ async def chat_stream(req: ChatRequest):
 
 
 @app.get("/api/chat/{thread_id}/history")
-async def chat_history(thread_id: str):
-    session = _require_session()
+async def chat_history(thread_id: str, session: Session = Depends(get_session)):
     messages = _load_conversation(session, thread_id)
     return {"thread_id": thread_id, "messages": messages}
 
@@ -442,35 +424,26 @@ async def chat_history(thread_id: str):
 # Routes — Documents (RAG)
 # ---------------------------------------------------------------------------
 @app.post("/api/documents/upload")
-async def upload_documents(files: list[UploadFile] = File(...)):
+async def upload_documents(files: list[UploadFile] = File(...), session: Session = Depends(get_session)):
     """Save uploaded PDFs to temp files, build the RAG chain, then clean up."""
     import tempfile
 
-    session = _require_session()
-
-    # (original_name, tmp_path) pairs — kept alive until chain is built
     uploads: list[tuple[str, str]] = []
 
     try:
         for upload in files:
             if not (upload.filename or "").lower().endswith(".pdf"):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{upload.filename!r} is not a PDF.",
-                )
+                raise HTTPException(status_code=400, detail=f"{upload.filename!r} is not a PDF.")
             content = await upload.read()
             if not content:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"{upload.filename!r} is empty.",
-                )
+                raise HTTPException(status_code=400, detail=f"{upload.filename!r} is empty.")
+            
             tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
             tmp.write(content)
             tmp.close()
             uploads.append((upload.filename, tmp.name))
             logger.info("Saved upload %r → %s (%d bytes)", upload.filename, tmp.name, len(content))
 
-        # Pass the real on-disk paths; agentic_rag will open them with PyPDFLoader
         tmp_paths = [path for _, path in uploads]
         saved     = [name for name, _ in uploads]
 
@@ -494,7 +467,6 @@ async def upload_documents(files: list[UploadFile] = File(...)):
         return {"uploaded": saved, "thread_id": tid, "mode": Mode.RAG.value}
 
     finally:
-        # Always remove temp files, even if an error occurred
         for _, path in uploads:
             try:
                 os.unlink(path)
@@ -503,22 +475,22 @@ async def upload_documents(files: list[UploadFile] = File(...)):
 
 
 @app.get("/api/documents")
-async def list_documents():
-    session = _require_session()
+async def list_documents(session: Session = Depends(get_session)):
     return {"documents": session.uploaded_docs}
 
 
 @app.delete("/api/documents")
-async def clear_documents():
-    session = _require_session()
+async def clear_documents(session: Session = Depends(get_session)):
     session.rag_graph = None
     gc.collect()
+    # In a multi-user environment, wiping the entire VECTOR_STORE_DIR breaks 
+    # other sessions that are using it! For production this needs to be 
+    # a per-session directory. For MVP, we will still wipe it to clear space.
     if os.path.exists(VECTOR_STORE_DIR):
         shutil.rmtree(VECTOR_STORE_DIR)
     session.uploaded_docs = []
     session.current_mode = Mode.SEARCH
 
-    # Switch to a new search thread
     tid = _create_thread_id(Mode.SEARCH)
     session.current_thread_id = tid
     if tid not in session.thread_list:

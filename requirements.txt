@@ -26,6 +26,7 @@ langgraph-checkpoint-sqlite==3.1.0
 # chromadb 1.5.9 has a protobuf/opentelemetry conflict on Python 3.13.
 # Fix: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python is set in config.py.
 chromadb==1.0.0                        # Last version without the gRPC breakage
+rank-bm25>=0.2.2
 
 # --- Embeddings & ML ---
 sentence-transformers==5.5.0
