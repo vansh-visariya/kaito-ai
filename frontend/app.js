@@ -1,66 +1,82 @@
 /* ============================================================
    Kaito-AI — app.js
-   Connects the static frontend to the FastAPI backend.
+   Features:
+     1. SSE streaming (POST /api/chat/stream) with fetch ReadableStream
+     2. marked.js + highlight.js markdown rendering with copy buttons
+     3. Source citations rendered under RAG answers
    ============================================================ */
 
-const API = '';   // same-origin; change to 'http://localhost:8000' for dev
+const API = '';   // same-origin; set to 'http://localhost:8000' for dev
+
+// ── Configure marked.js with highlight.js ─────────────────────────────────
+const { markedHighlight } = globalThis.markedHighlight;
+marked.use(markedHighlight({
+  langPrefix: 'hljs language-',
+  highlight(code, lang) {
+    const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+    return hljs.highlight(code, { language }).value;
+  },
+}));
+marked.use({ gfm: true, breaks: true });
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
-const configOverlay = document.getElementById('config-overlay');
-const configForm = document.getElementById('config-form');
-const configError = document.getElementById('config-error');
-const configSubmit = document.getElementById('config-submit');
-const appEl = document.getElementById('app');
+const configOverlay  = document.getElementById('config-overlay');
+const configForm     = document.getElementById('config-form');
+const configError    = document.getElementById('config-error');
+const configSubmit   = document.getElementById('config-submit');
+const appEl          = document.getElementById('app');
 
-const sidebar = document.getElementById('sidebar');
-const sidebarToggle = document.getElementById('sidebar-toggle');
-const mobSidebarToggle = document.getElementById('mob-sidebar-toggle');
-const newChatBtn = document.getElementById('new-chat-btn');
-const threadListEl = document.getElementById('thread-list');
-const docListEl = document.getElementById('doc-list');
-const clearDocsBtn = document.getElementById('clear-docs-btn');
-const cleanThreadsBtn = document.getElementById('clean-threads-btn');
-const settingsBtn = document.getElementById('settings-btn');
-const modeBadge = document.getElementById('mode-badge');
+const sidebar           = document.getElementById('sidebar');
+const sidebarToggle     = document.getElementById('sidebar-toggle');
+const mobSidebarToggle  = document.getElementById('mob-sidebar-toggle');
+const newChatBtn        = document.getElementById('new-chat-btn');
+const threadListEl      = document.getElementById('thread-list');
+const docListEl         = document.getElementById('doc-list');
+const clearDocsBtn      = document.getElementById('clear-docs-btn');
+const cleanThreadsBtn   = document.getElementById('clean-threads-btn');
+const settingsBtn       = document.getElementById('settings-btn');
+const modeBadge         = document.getElementById('mode-badge');
 
-const messagesEl = document.getElementById('messages');
-const welcomeEl = document.getElementById('welcome');
-const chatInput = document.getElementById('chat-input');
-const sendBtn = document.getElementById('send-btn');
-const pdfUpload = document.getElementById('pdf-upload');
+const messagesEl    = document.getElementById('messages');
+const welcomeEl     = document.getElementById('welcome');
+const chatInput     = document.getElementById('chat-input');
+const sendBtn       = document.getElementById('send-btn');
+const pdfUpload     = document.getElementById('pdf-upload');
 const uploadIndicator = document.getElementById('upload-indicator');
-const uploadFilename = document.getElementById('upload-filename');
-const cancelUpload = document.getElementById('cancel-upload');
-const uploadOverlay = document.getElementById('upload-overlay');
-const toastEl = document.getElementById('toast');
-const topbarLabel = document.getElementById('topbar-thread-label');
-const topbarMode = document.getElementById('topbar-mode');
+const uploadFilename  = document.getElementById('upload-filename');
+const cancelUpload    = document.getElementById('cancel-upload');
+const uploadOverlay   = document.getElementById('upload-overlay');
+const toastEl       = document.getElementById('toast');
+const topbarLabel   = document.getElementById('topbar-thread-label');
+const topbarMode    = document.getElementById('topbar-mode');
 
 // ── State ─────────────────────────────────────────────────────────────────
 let currentThreadId = null;
-let pendingFiles = [];
-let isStreaming = false;
+let pendingFiles    = [];
+let isStreaming     = false;
 
-// ── Helpers ───────────────────────────────────────────────────────────────
+// ── Generic API helper (JSON only) ────────────────────────────────────────
 async function api(path, opts = {}) {
-  const res = await fetch(API + path, opts);
+  const res  = await fetch(API + path, opts);
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || 'API error');
   return data;
 }
 
+// ── Toast ─────────────────────────────────────────────────────────────────
 function showToast(msg, type = 'info', ms = 2800) {
   toastEl.textContent = msg;
-  toastEl.className = `toast ${type}`;
+  toastEl.className   = `toast ${type}`;
   toastEl.classList.remove('hidden');
   clearTimeout(toastEl._timer);
   toastEl._timer = setTimeout(() => toastEl.classList.add('hidden'), ms);
 }
 
+// ── Misc helpers ──────────────────────────────────────────────────────────
 function setLoading(btn, loading) {
-  const txt = btn.querySelector('.btn-text');
+  const txt  = btn.querySelector('.btn-text');
   const spin = btn.querySelector('.btn-spinner');
-  if (txt) txt.classList.toggle('hidden', loading);
+  if (txt)  txt.classList.toggle('hidden', loading);
   if (spin) spin.classList.toggle('hidden', !loading);
   btn.disabled = loading;
 }
@@ -76,32 +92,58 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }
 
+// ── Markdown rendering ────────────────────────────────────────────────────
 function renderMarkdown(text) {
-  // Basic markdown-like rendering
-  return text
-    .replace(/```([\s\S]*?)```/g, (_, code) => `<pre><code>${escapeHtml(code.trim())}</code></pre>`)
-    .replace(/`([^`]+)`/g, (_, code) => `<code>${escapeHtml(code)}</code>`)
-    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
-    .replace(/\n\n+/g, '</p><p>')
-    .replace(/\n/g, '<br>')
-    .replace(/^/, '<p>').replace(/$/, '</p>');
+  return marked.parse(text || '');
 }
 
+/** Add copy-to-clipboard buttons to every <pre><code> block inside el. */
+function addCopyButtons(el) {
+  el.querySelectorAll('pre code').forEach(block => {
+    if (block.parentElement.querySelector('.copy-btn')) return; // already added
+    const btn = document.createElement('button');
+    btn.className   = 'copy-btn';
+    btn.textContent = 'Copy';
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(block.innerText).then(() => {
+        btn.textContent = 'Copied!';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
+      });
+    });
+    block.parentElement.appendChild(btn);
+  });
+}
+
+// ── Source citations ──────────────────────────────────────────────────────
+/** Append a sources bar under a bubble element. */
+function renderSources(sources, bubble) {
+  if (!sources || !sources.length) return;
+  const bar = document.createElement('div');
+  bar.className = 'sources';
+  bar.innerHTML = '<span class="sources-label">Sources</span>';
+  sources.forEach(s => {
+    const chip = document.createElement('span');
+    chip.className   = 'source-chip';
+    chip.textContent = `📄 ${s.file} · p.${s.page}`;
+    chip.title       = `${s.file}, page ${s.page}`;
+    bar.appendChild(chip);
+  });
+  bubble.appendChild(bar);
+}
+
+// ── Mode UI ───────────────────────────────────────────────────────────────
 function updateModeUI(mode) {
   const isRag = mode === 'rag';
-  const label = isRag ? '📄 RAG Mode' : '🔍 Search Mode';
-  const cls = isRag ? 'mode-rag' : 'mode-search';
-  modeBadge.textContent = '';
+  const cls   = isRag ? 'mode-rag' : 'mode-search';
   modeBadge.className = `mode-badge ${cls}`;
   modeBadge.innerHTML = `<span class="mode-icon">${isRag ? '📄' : '🔍'}</span><span class="mode-label">${isRag ? 'RAG Mode' : 'Search Mode'}</span>`;
-
-  topbarMode.className = `topbar-mode ${cls}`;
+  topbarMode.className   = `topbar-mode ${cls}`;
   topbarMode.textContent = isRag ? '📄 RAG' : '🔍 Search';
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
-function appendMessage(role, content) {
+function appendMessage(role, content, sources = []) {
   welcomeEl.classList.add('hidden');
 
   const wrapper = document.createElement('div');
@@ -109,14 +151,16 @@ function appendMessage(role, content) {
 
   if (role === 'assistant') {
     const av = document.createElement('div');
-    av.className = 'avatar ai';
+    av.className  = 'avatar ai';
     av.textContent = 'K';
     wrapper.appendChild(av);
   }
 
   const bubble = document.createElement('div');
-  bubble.className = `bubble ${role}`;
-  bubble.innerHTML = renderMarkdown(content);
+  bubble.className  = `bubble ${role}`;
+  bubble.innerHTML  = renderMarkdown(content);
+  addCopyButtons(bubble);
+  renderSources(sources, bubble);
   wrapper.appendChild(bubble);
 
   messagesEl.appendChild(wrapper);
@@ -127,10 +171,10 @@ function appendMessage(role, content) {
 function showTypingIndicator() {
   const wrapper = document.createElement('div');
   wrapper.className = 'msg-wrapper assistant';
-  wrapper.id = 'typing-indicator';
+  wrapper.id        = 'typing-indicator';
 
   const av = document.createElement('div');
-  av.className = 'avatar ai';
+  av.className  = 'avatar ai';
   av.textContent = 'K';
 
   const bubble = document.createElement('div');
@@ -158,6 +202,7 @@ function clearMessages() {
 function renderHistory(messages) {
   clearMessages();
   if (!messages || !messages.length) return;
+  // History messages don't carry sources (they're from the DB not the live stream)
   messages.forEach(m => appendMessage(m.role, m.content));
 }
 
@@ -174,17 +219,17 @@ async function loadThreads() {
 
     threads.forEach(t => {
       const item = document.createElement('div');
-      item.className = `thread-item${t.active ? ' active' : ''}`;
+      item.className  = `thread-item${t.active ? ' active' : ''}`;
       item.dataset.id = t.id;
-      item.innerHTML = `
+      item.innerHTML  = `
         <span class="thread-preview">${escapeHtml(t.preview)}</span>
         <button class="thread-delete" title="Delete" data-id="${t.id}">×</button>
       `;
-      item.addEventListener('click', (e) => {
+      item.addEventListener('click', e => {
         if (e.target.closest('.thread-delete')) return;
         selectThread(t.id);
       });
-      item.querySelector('.thread-delete').addEventListener('click', (e) => {
+      item.querySelector('.thread-delete').addEventListener('click', e => {
         e.stopPropagation();
         deleteThread(t.id);
       });
@@ -202,7 +247,7 @@ async function selectThread(tid) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ thread_id: tid }),
     });
-    currentThreadId = data.thread_id;
+    currentThreadId       = data.thread_id;
     topbarLabel.textContent = 'Conversation';
     renderHistory(data.messages);
     updateModeUI(data.mode);
@@ -218,7 +263,6 @@ async function deleteThread(tid) {
     currentThreadId = data.current_thread_id;
     showToast('Thread deleted', 'success');
     await loadThreads();
-    // reload current thread messages
     const hist = await api(`/api/chat/${currentThreadId}/history`);
     renderHistory(hist.messages);
   } catch (err) {
@@ -250,15 +294,15 @@ async function loadDocuments() {
 }
 
 // ── Config form ───────────────────────────────────────────────────────────
-configForm.addEventListener('submit', async (e) => {
+configForm.addEventListener('submit', async e => {
   e.preventDefault();
   configError.classList.add('hidden');
   setLoading(configSubmit, true);
 
   const payload = {
-    groq_api_key: document.getElementById('groq-key').value.trim(),
-    model_name: document.getElementById('model-name').value.trim() || 'llama-3.1-8b-instant',
-    tavily_api_key: document.getElementById('tavily-key').value.trim(),
+    groq_api_key:    document.getElementById('groq-key').value.trim(),
+    model_name:      document.getElementById('model-name').value.trim() || 'llama-3.1-8b-instant',
+    tavily_api_key:  document.getElementById('tavily-key').value.trim(),
     langchain_api_key: document.getElementById('langchain-key').value.trim() || null,
   };
 
@@ -286,7 +330,7 @@ configForm.addEventListener('submit', async (e) => {
 document.querySelectorAll('.toggle-visibility').forEach(btn => {
   btn.addEventListener('click', () => {
     const inp = document.getElementById(btn.dataset.target);
-    inp.type = inp.type === 'password' ? 'text' : 'password';
+    inp.type  = inp.type === 'password' ? 'text' : 'password';
   });
 });
 
@@ -294,9 +338,9 @@ document.querySelectorAll('.toggle-visibility').forEach(btn => {
 newChatBtn.addEventListener('click', async () => {
   try {
     const data = await api('/api/threads/new', { method: 'POST' });
-    currentThreadId = data.thread_id;
-    clearMessages();
+    currentThreadId         = data.thread_id;
     topbarLabel.textContent = 'New Conversation';
+    clearMessages();
     updateModeUI(data.mode);
     await loadThreads();
   } catch (err) {
@@ -304,13 +348,13 @@ newChatBtn.addEventListener('click', async () => {
   }
 });
 
-// ── Chat input ────────────────────────────────────────────────────────────
+// ── Chat input events ─────────────────────────────────────────────────────
 chatInput.addEventListener('input', () => {
   autoResize();
   sendBtn.disabled = !chatInput.value.trim() && !pendingFiles.length;
 });
 
-chatInput.addEventListener('keydown', (e) => {
+chatInput.addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     if (!sendBtn.disabled) handleSend();
@@ -319,28 +363,28 @@ chatInput.addEventListener('keydown', (e) => {
 
 sendBtn.addEventListener('click', handleSend);
 
-// Quick chips
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
-    chatInput.value = chip.dataset.prompt;
-    autoResize();
+    chatInput.value  = chip.dataset.prompt;
     sendBtn.disabled = false;
+    autoResize();
     chatInput.focus();
   });
 });
 
+// ── SSE streaming send ────────────────────────────────────────────────────
 async function handleSend() {
   if (isStreaming) return;
   const text = chatInput.value.trim();
   if (!text && !pendingFiles.length) return;
 
-  isStreaming = true;
+  isStreaming      = true;
   sendBtn.disabled = true;
-  chatInput.value = '';
+  chatInput.value  = '';
   autoResize();
 
   try {
-    // If there are files pending, upload them first
+    // Upload files first if any are pending
     if (pendingFiles.length) {
       await uploadFiles(pendingFiles);
       pendingFiles = [];
@@ -348,30 +392,89 @@ async function handleSend() {
       pdfUpload.value = '';
     }
 
-    if (!text) { isStreaming = false; return; }
+    if (!text) { isStreaming = false; sendBtn.disabled = false; return; }
 
+    // User bubble
     appendMessage('user', text);
-    const indicator = showTypingIndicator();
 
-    const data = await api('/api/chat', {
-      method: 'POST',
+    // Create empty assistant bubble with streaming cursor
+    welcomeEl.classList.add('hidden');
+    const wrapper = document.createElement('div');
+    wrapper.className = 'msg-wrapper assistant';
+
+    const av = document.createElement('div');
+    av.className   = 'avatar ai';
+    av.textContent = 'K';
+
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble assistant streaming-cursor';
+
+    wrapper.appendChild(av);
+    wrapper.appendChild(bubble);
+    messagesEl.appendChild(wrapper);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    // Open SSE stream via fetch (POST, not EventSource which only does GET)
+    const response = await fetch(API + '/api/chat/stream', {
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message: text, thread_id: currentThreadId }),
+      body:    JSON.stringify({ message: text, thread_id: currentThreadId }),
     });
 
-    removeTypingIndicator();
-    appendMessage('assistant', data.response);
-    currentThreadId = data.thread_id;
-    updateModeUI(data.mode);
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ detail: 'Unknown error' }));
+      throw new Error(err.detail || 'Stream failed');
+    }
 
-    // Refresh thread list (preview update)
-    await loadThreads();
+    const reader  = response.body.getReader();
+    const decoder = new TextDecoder();
+    let   buffer  = '';
+    let   fullText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop(); // Keep the incomplete last line
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const raw = line.slice(6).trim();
+        if (!raw) continue;
+
+        let evt;
+        try { evt = JSON.parse(raw); } catch { continue; }
+
+        if (evt.type === 'token') {
+          fullText += evt.token;
+          // Re-render markdown on each token — fast enough with marked
+          bubble.innerHTML = renderMarkdown(fullText);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+
+        } else if (evt.type === 'done') {
+          bubble.classList.remove('streaming-cursor');
+          // Final render + post-processing
+          bubble.innerHTML = renderMarkdown(fullText);
+          addCopyButtons(bubble);
+          renderSources(evt.sources || [], bubble);
+          currentThreadId = evt.thread_id;
+          updateModeUI(evt.mode);
+          await loadThreads();
+
+        } else if (evt.type === 'error') {
+          bubble.classList.remove('streaming-cursor');
+          bubble.innerHTML = `<span style="color:#f87171">⚠️ ${escapeHtml(evt.message)}</span>`;
+        }
+      }
+    }
 
   } catch (err) {
     removeTypingIndicator();
     appendMessage('assistant', `⚠️ Error: ${err.message}`);
   } finally {
-    isStreaming = false;
+    isStreaming      = false;
     sendBtn.disabled = !chatInput.value.trim();
   }
 }
@@ -380,14 +483,14 @@ async function handleSend() {
 pdfUpload.addEventListener('change', () => {
   const files = Array.from(pdfUpload.files);
   if (!files.length) return;
-  pendingFiles = files;
+  pendingFiles             = files;
   uploadFilename.textContent = files.length === 1 ? files[0].name : `${files.length} PDFs selected`;
   uploadIndicator.classList.remove('hidden');
   sendBtn.disabled = false;
 });
 
 cancelUpload.addEventListener('click', () => {
-  pendingFiles = [];
+  pendingFiles    = [];
   pdfUpload.value = '';
   uploadIndicator.classList.add('hidden');
   sendBtn.disabled = !chatInput.value.trim();
@@ -399,9 +502,9 @@ async function uploadFiles(files) {
     const form = new FormData();
     files.forEach(f => form.append('files', f));
     const data = await api('/api/documents/upload', { method: 'POST', body: form });
-    currentThreadId = data.thread_id;
-    updateModeUI(data.mode);
+    currentThreadId         = data.thread_id;
     topbarLabel.textContent = 'Document Analysis';
+    updateModeUI(data.mode);
     showToast(`✅ ${data.uploaded.length} document(s) uploaded`, 'success');
     await loadDocuments();
     await loadThreads();
@@ -447,8 +550,7 @@ settingsBtn.addEventListener('click', () => {
 sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
 mobSidebarToggle.addEventListener('click', () => sidebar.classList.toggle('mobile-open'));
 
-// Close mobile sidebar on outside click
-document.addEventListener('click', (e) => {
+document.addEventListener('click', e => {
   if (window.innerWidth <= 700 && sidebar.classList.contains('mobile-open')) {
     if (!sidebar.contains(e.target) && e.target !== mobSidebarToggle) {
       sidebar.classList.remove('mobile-open');
@@ -456,7 +558,7 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ── Check if already configured (page reload) ──────────────────────────────
+// ── Check if already configured (page reload) ─────────────────────────────
 (async () => {
   try {
     const status = await api('/api/config/status');

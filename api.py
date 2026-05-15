@@ -7,11 +7,14 @@ Run with:
     uvicorn api:app --reload --port 8000
 """
 
+import asyncio
 import gc
+import json
 import logging
 import os
 import shutil
 import sys
+from pathlib import Path
 from typing import Optional
 
 # ---------------------------------------------------------------------------
@@ -31,7 +34,7 @@ os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
 from langchain_core.messages import AIMessage, HumanMessage
@@ -321,6 +324,7 @@ async def delete_empty_threads():
 # ---------------------------------------------------------------------------
 @app.post("/api/chat")
 async def chat(req: ChatRequest):
+    """Blocking chat — returns full response in one JSON object."""
     session = _require_session()
     thread_id = req.thread_id or session.current_thread_id
 
@@ -333,6 +337,7 @@ async def chat(req: ChatRequest):
     try:
         result = graph.invoke({"question": req.message}, config=config)
         response = result.get("generation", "Sorry, I couldn't generate a response.")
+        sources  = result.get("sources", [])
     except Exception as exc:
         logger.exception("Chat invoke failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
@@ -341,8 +346,89 @@ async def chat(req: ChatRequest):
     return {
         "thread_id": thread_id,
         "response": response,
+        "sources": sources,
         "mode": get_thread_mode(thread_id).value,
     }
+
+
+@app.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """SSE streaming chat — sends tokens as they are generated.
+
+    Event types sent over the stream:
+      {"type": "token",  "token": "..."}        — one LLM output token
+      {"type": "done",   "thread_id": ...,       — stream finished
+                          "mode": ...,
+                          "sources": [...]}
+      {"type": "error",  "message": "..."}       — error during inference
+    """
+    session = _require_session()
+    thread_id = req.thread_id or session.current_thread_id
+
+    if thread_id not in session.thread_list:
+        session.thread_list.append(thread_id)
+
+    graph  = _get_graph_for_thread(session, thread_id)
+    config = {"configurable": {"thread_id": thread_id}}
+
+    async def generate():
+        sources: list[dict] = []
+        seen_sources: set[tuple] = set()
+
+        try:
+            async for event in graph.astream_events(
+                {"question": req.message}, config=config
+            ):
+                kind = event["event"]
+
+                # —— Stream final-answer tokens only ———————————————
+                # Tool-calling steps produce AIMessageChunks with
+                # tool_call_chunks but NO text content.  The final answer
+                # step produces chunks with text content and no tool calls.
+                if kind == "on_chat_model_stream":
+                    chunk = event["data"]["chunk"]
+                    if chunk.content and not chunk.tool_call_chunks:
+                        token = (
+                            chunk.content
+                            if isinstance(chunk.content, str)
+                            else ""
+                        )
+                        if token:
+                            yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+
+                # —— Capture document citations from retriever tool ———————
+                elif kind == "on_tool_end":
+                    if event.get("name") == "document_retriever":
+                        output = event["data"].get("output")
+                        # content_and_artifact format: (str, [Document, ...])
+                        docs = output[1] if isinstance(output, tuple) else []
+                        for doc in docs:
+                            if not hasattr(doc, "metadata"):
+                                continue
+                            raw  = doc.metadata.get("source", "")
+                            page = doc.metadata.get("page", 0)
+                            file = Path(raw).name if raw else ""
+                            key  = (file, page)
+                            if file and key not in seen_sources:
+                                seen_sources.add(key)
+                                sources.append({"file": file, "page": page + 1})
+
+        except Exception as exc:
+            logger.exception("SSE stream error: %s", exc)
+            yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+            return
+
+        session.current_thread_id = thread_id
+        yield f"data: {json.dumps({'type': 'done', 'thread_id': thread_id, 'mode': get_thread_mode(thread_id).value, 'sources': sources})}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",   # disable Nginx buffering
+        },
+    )
 
 
 @app.get("/api/chat/{thread_id}/history")

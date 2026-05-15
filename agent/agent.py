@@ -10,19 +10,25 @@ create_search_agent — web search only (no documents).
     Tools: tavily_search
 
 create_rag_agent — PDF document retrieval + web search fallback.
-    Tools: document_retriever, tavily_search
+    Tools: document_retriever  (content_and_artifact format → sources)
+           tavily_search
 
 Both expose the same interface:
-    agent.invoke({"question": "..."}) -> {"generation": "...", "question": "..."}
-    agent.get_state(config)           -> LangGraph snapshot (for history)
+    agent.invoke({"question": "..."})
+        -> {"generation": "...", "question": "...", "sources": [...]}
+    agent.astream_events({"question": "..."}, config)
+        -> async generator of LangGraph events  (for SSE streaming)
+    agent.get_state(config)
+        -> LangGraph snapshot  (for history loading)
 """
 
 import logging
 from functools import lru_cache
+from pathlib import Path
 
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools.retriever import create_retriever_tool
 from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
@@ -101,29 +107,69 @@ def build_vector_store(file_paths: list[str]) -> Chroma:
 
 
 # ---------------------------------------------------------------------------
+# Source extraction helper
+# ---------------------------------------------------------------------------
+def _extract_sources(messages: list) -> list[dict]:
+    """Pull document citations out of ToolMessage artifacts.
+
+    Works when ``create_retriever_tool`` is called with
+    ``response_format="content_and_artifact"`` — the artifact field holds
+    the list of raw :class:`langchain_core.documents.Document` objects.
+
+    Returns:
+        Deduplicated list of ``{"file": str, "page": int}`` dicts
+        (page is 1-indexed for display).
+    """
+    sources: list[dict] = []
+    seen: set[tuple] = set()
+
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        artifact = getattr(msg, "artifact", None)
+        if not artifact:
+            continue
+        for doc in artifact:
+            if not hasattr(doc, "metadata"):
+                continue
+            raw = doc.metadata.get("source", "")
+            page = doc.metadata.get("page", 0)
+            # Strip temp-file path — show only the original filename
+            file = Path(raw).name if raw else ""
+            key = (file, page)
+            if file and key not in seen:
+                seen.add(key)
+                sources.append({"file": file, "page": page + 1})  # 1-indexed
+
+    return sources
+
+
+# ---------------------------------------------------------------------------
 # Shared: agent wrapper
 # ---------------------------------------------------------------------------
 class _AgentWrapper:
-    """Adapts a ReAct agent's messages interface to the question/generation
-    interface used by ``api.py``.
+    """Adapts a ReAct agent to the question/generation interface used by api.py.
 
     Input  (invoke):  {"question": "..."}
-    Output (invoke):  {"generation": "...", "question": "..."}
+    Output (invoke):  {"generation": "...", "question": "...", "sources": [...]}
 
-    ``get_state`` is a pass-through so conversation-history loading in
-    ``api.py`` (which reads ``state.values["messages"]``) keeps working.
+    ``astream_events`` is a thin async generator pass-through that the SSE
+    endpoint in api.py consumes directly.
+
+    ``get_state`` is a pass-through so conversation-history loading works.
     """
 
     def __init__(self, agent) -> None:
         self._agent = agent
 
+    # -- synchronous invoke (kept for compatibility) -------------------------
     def invoke(self, inputs: dict, config: dict | None = None) -> dict:
         question = inputs.get("question", "")
         result = self._agent.invoke(
             {"messages": [HumanMessage(content=question)]},
             config=config,
         )
-        # The last AIMessage with non-empty content is the final answer.
+        # Last AIMessage with text content = final answer
         ai_msgs = [
             m for m in result["messages"]
             if isinstance(m, AIMessage) and m.content
@@ -133,8 +179,21 @@ class _AgentWrapper:
             if ai_msgs
             else "Sorry, I couldn't generate a response."
         )
-        return {"generation": generation, "question": question}
+        sources = _extract_sources(result["messages"])
+        return {"generation": generation, "question": question, "sources": sources}
 
+    # -- async streaming (for SSE) -------------------------------------------
+    async def astream_events(self, inputs: dict, config: dict | None = None):
+        """Async generator of raw LangGraph events — consumed by the SSE endpoint."""
+        question = inputs.get("question", "")
+        async for event in self._agent.astream_events(
+            {"messages": [HumanMessage(content=question)]},
+            config=config,
+            version="v2",
+        ):
+            yield event
+
+    # -- state (for history loading) -----------------------------------------
     def get_state(self, config: dict):
         return self._agent.get_state(config)
 
@@ -176,19 +235,10 @@ def create_search_agent(
     model_name: str,
     tavily_api_key: str,
 ) -> _AgentWrapper:
-    """Build a ReAct search agent with web-search as its only tool.
-
-    Args:
-        groq_api_key:   Groq API key for LLM inference.
-        model_name:     Groq model identifier (e.g. ``llama-3.1-8b-instant``).
-        tavily_api_key: Tavily API key for web search.
-
-    Returns:
-        An :class:`_AgentWrapper` ready to handle chat requests.
-    """
+    """Build a ReAct search agent with web-search as its only tool."""
     configure_environment(groq_api_key, tavily_api_key)
 
-    llm    = ChatGroq(model=model_name)
+    llm    = ChatGroq(model=model_name, streaming=True)
     memory = get_search_memory()
     tools  = [make_web_search_tool()]
 
@@ -208,27 +258,19 @@ def create_rag_agent(
     file_paths: list[str],
     tavily_api_key: str,
 ) -> _AgentWrapper:
-    """Build a ReAct RAG agent with document retrieval + web-search tools.
-
-    Args:
-        groq_api_key:   Groq API key for LLM inference.
-        model_name:     Groq model identifier.
-        file_paths:     Absolute paths to PDF files on disk.
-        tavily_api_key: Tavily API key for web-search fallback.
-
-    Returns:
-        An :class:`_AgentWrapper` ready to handle chat requests.
-    """
+    """Build a ReAct RAG agent with document retrieval + web-search tools."""
     configure_environment(groq_api_key, tavily_api_key)
 
-    llm    = ChatGroq(model=model_name)
+    llm    = ChatGroq(model=model_name, streaming=True)
     memory = get_rag_memory()
 
-    # Build ChromaDB vector store and wrap as a tool
     vector_store = build_vector_store(file_paths)
     retriever    = vector_store.as_retriever(
         search_kwargs={"k": DEFAULT_RETRIEVER_K}
     )
+
+    # response_format="content_and_artifact" makes the ToolMessage carry
+    # the original Document objects in its .artifact field → used for citations.
     retriever_tool = create_retriever_tool(
         retriever,
         name="document_retriever",
@@ -237,6 +279,7 @@ def create_rag_agent(
             "documents. Use this tool first for any question about the files. "
             "Input: a natural-language search query."
         ),
+        response_format="content_and_artifact",
     )
 
     tools = [retriever_tool, make_web_search_tool()]
