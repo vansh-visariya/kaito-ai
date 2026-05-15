@@ -62,12 +62,19 @@ def make_web_search_tool() -> TavilySearch:
 
 
 # ---------------------------------------------------------------------------
-# RAG-only: embeddings
+# RAG-only: embeddings & reranker
 # ---------------------------------------------------------------------------
 @lru_cache(maxsize=1)
 def _load_embeddings() -> HuggingFaceEmbeddings:
     logger.info("Loading embedding model: %s", DEFAULT_EMBEDDING_MODEL)
     return HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL)
+
+
+@lru_cache(maxsize=1)
+def _load_reranker():
+    logger.info("Loading cross-encoder reranker...")
+    from sentence_transformers import CrossEncoder
+    return CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
 # ---------------------------------------------------------------------------
@@ -113,7 +120,20 @@ class _HybridRetriever(BaseRetriever):
         _score(vector_docs, 1.0 - self.bm25_weight)
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        return [doc_map[key] for key, _ in ranked[: self.k]]
+        # Take top K * 2 from hybrid search for reranking
+        top_docs = [doc_map[key] for key, _ in ranked[: self.k * 2]]
+
+        if not top_docs:
+            return []
+
+        # Cross-encoder reranking
+        reranker = _load_reranker()
+        pairs = [[query, doc.page_content] for doc in top_docs]
+        rerank_scores = reranker.predict(pairs)
+
+        # Sort documents by cross-encoder score descending
+        reranked = sorted(zip(rerank_scores, top_docs), key=lambda x: x[0], reverse=True)
+        return [doc for _, doc in reranked[: self.k]]
 
     async def _aget_relevant_documents(self, query: str) -> list[Document]:  # type: ignore[override]
         return self._get_relevant_documents(query)
