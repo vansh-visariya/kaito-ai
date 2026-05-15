@@ -37,7 +37,7 @@ from fastapi.responses import FileResponse
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
-from agent.search import model_create
+from agent.agent import create_search_agent, create_rag_agent
 from config import (
     Mode,
     THREAD_PREFIX,
@@ -46,7 +46,6 @@ from config import (
     get_thread_mode,
 )
 from database.memory import get_rag_memory, get_search_memory
-from rag.agentic_rag import create_rag_chain
 from utility import generate_unique_id, get_memory_for_mode, validate_groq_key
 
 # ---------------------------------------------------------------------------
@@ -128,7 +127,7 @@ def _create_thread_id(mode: Mode) -> str:
 
 def _get_search_graph(session: Session):
     if not session.search_graph:
-        session.search_graph = model_create(
+        session.search_graph = create_search_agent(
             session.groq_api_key, session.model_name, session.tavily_api_key
         )
     return session.search_graph
@@ -358,71 +357,63 @@ async def chat_history(thread_id: str):
 # ---------------------------------------------------------------------------
 @app.post("/api/documents/upload")
 async def upload_documents(files: list[UploadFile] = File(...)):
+    """Save uploaded PDFs to temp files, build the RAG chain, then clean up."""
+    import tempfile
+
     session = _require_session()
 
-    import tempfile
-    from pathlib import Path
+    # (original_name, tmp_path) pairs — kept alive until chain is built
+    uploads: list[tuple[str, str]] = []
 
-    saved: list[str] = []
-    tmp_paths: list = []
+    try:
+        for upload in files:
+            if not (upload.filename or "").lower().endswith(".pdf"):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{upload.filename!r} is not a PDF.",
+                )
+            content = await upload.read()
+            if not content:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{upload.filename!r} is empty.",
+                )
+            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
+            tmp.write(content)
+            tmp.close()
+            uploads.append((upload.filename, tmp.name))
+            logger.info("Saved upload %r → %s (%d bytes)", upload.filename, tmp.name, len(content))
 
-    for upload in files:
-        if not upload.filename.endswith(".pdf"):
-            raise HTTPException(status_code=400, detail=f"{upload.filename} is not a PDF.")
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-        content = await upload.read()
-        tmp.write(content)
-        tmp.close()
+        # Pass the real on-disk paths; agentic_rag will open them with PyPDFLoader
+        tmp_paths = [path for _, path in uploads]
+        saved     = [name for name, _ in uploads]
 
-        # Monkey-patch a .name attribute so langchain loaders can use it
-        class _FakePDF:
-            name: str
-            read: callable
+        session.rag_graph = create_rag_agent(
+            session.groq_api_key,
+            session.model_name,
+            tmp_paths,
+            session.tavily_api_key,
+        )
+        session.current_mode = Mode.RAG
 
-            def __init__(self, name, path):
-                self.name = name
-                self._path = path
+        for name in saved:
+            if name not in session.uploaded_docs:
+                session.uploaded_docs.append(name)
 
-            def read(self):
-                with open(self._path, "rb") as f:
-                    return f.read()
+        tid = _create_thread_id(Mode.RAG)
+        session.current_thread_id = tid
+        if tid not in session.thread_list:
+            session.thread_list.append(tid)
 
-            def getvalue(self):
-                with open(self._path, "rb") as f:
-                    return f.read()
+        return {"uploaded": saved, "thread_id": tid, "mode": Mode.RAG.value}
 
-        tmp_paths.append(_FakePDF(upload.filename, tmp.name))
-        saved.append(upload.filename)
-
-    session.rag_graph = create_rag_chain(
-        session.groq_api_key,
-        session.model_name,
-        tmp_paths,
-        session.tavily_api_key,
-    )
-    session.current_mode = Mode.RAG
-
-    for name in saved:
-        if name not in session.uploaded_docs:
-            session.uploaded_docs.append(name)
-
-    tid = _create_thread_id(Mode.RAG)
-    session.current_thread_id = tid
-    if tid not in session.thread_list:
-        session.thread_list.append(tid)
-
-    # Cleanup temp files
-    for fp in tmp_paths:
-        try:
-            os.unlink(fp._path)
-        except Exception:
-            pass
-
-    return {
-        "uploaded": saved,
-        "thread_id": tid,
-        "mode": Mode.RAG.value,
-    }
+    finally:
+        # Always remove temp files, even if an error occurred
+        for _, path in uploads:
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
 
 @app.get("/api/documents")
