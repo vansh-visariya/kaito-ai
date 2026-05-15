@@ -6,40 +6,40 @@
 const API = '';   // same-origin; change to 'http://localhost:8000' for dev
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
-const configOverlay   = document.getElementById('config-overlay');
-const configForm      = document.getElementById('config-form');
-const configError     = document.getElementById('config-error');
-const configSubmit    = document.getElementById('config-submit');
-const appEl           = document.getElementById('app');
+const configOverlay = document.getElementById('config-overlay');
+const configForm = document.getElementById('config-form');
+const configError = document.getElementById('config-error');
+const configSubmit = document.getElementById('config-submit');
+const appEl = document.getElementById('app');
 
-const sidebar         = document.getElementById('sidebar');
-const sidebarToggle   = document.getElementById('sidebar-toggle');
-const mobSidebarToggle= document.getElementById('mob-sidebar-toggle');
-const newChatBtn      = document.getElementById('new-chat-btn');
-const threadListEl    = document.getElementById('thread-list');
-const docListEl       = document.getElementById('doc-list');
-const clearDocsBtn    = document.getElementById('clear-docs-btn');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const mobSidebarToggle = document.getElementById('mob-sidebar-toggle');
+const newChatBtn = document.getElementById('new-chat-btn');
+const threadListEl = document.getElementById('thread-list');
+const docListEl = document.getElementById('doc-list');
+const clearDocsBtn = document.getElementById('clear-docs-btn');
 const cleanThreadsBtn = document.getElementById('clean-threads-btn');
-const settingsBtn     = document.getElementById('settings-btn');
-const modeBadge       = document.getElementById('mode-badge');
+const settingsBtn = document.getElementById('settings-btn');
+const modeBadge = document.getElementById('mode-badge');
 
-const messagesEl      = document.getElementById('messages');
-const welcomeEl       = document.getElementById('welcome');
-const chatInput       = document.getElementById('chat-input');
-const sendBtn         = document.getElementById('send-btn');
-const pdfUpload       = document.getElementById('pdf-upload');
+const messagesEl = document.getElementById('messages');
+const welcomeEl = document.getElementById('welcome');
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const pdfUpload = document.getElementById('pdf-upload');
 const uploadIndicator = document.getElementById('upload-indicator');
-const uploadFilename  = document.getElementById('upload-filename');
-const cancelUpload    = document.getElementById('cancel-upload');
-const uploadOverlay   = document.getElementById('upload-overlay');
-const toastEl         = document.getElementById('toast');
-const topbarLabel     = document.getElementById('topbar-thread-label');
-const topbarMode      = document.getElementById('topbar-mode');
+const uploadFilename = document.getElementById('upload-filename');
+const cancelUpload = document.getElementById('cancel-upload');
+const uploadOverlay = document.getElementById('upload-overlay');
+const toastEl = document.getElementById('toast');
+const topbarLabel = document.getElementById('topbar-thread-label');
+const topbarMode = document.getElementById('topbar-mode');
 
 // ── State ─────────────────────────────────────────────────────────────────
 let currentThreadId = null;
-let pendingFiles    = [];
-let isStreaming     = false;
+let pendingFiles = [];
+let isStreaming = false;
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -60,7 +60,7 @@ function showToast(msg, type = 'info', ms = 2800) {
 function setLoading(btn, loading) {
   const txt = btn.querySelector('.btn-text');
   const spin = btn.querySelector('.btn-spinner');
-  if (txt)  txt.classList.toggle('hidden', loading);
+  if (txt) txt.classList.toggle('hidden', loading);
   if (spin) spin.classList.toggle('hidden', !loading);
   btn.disabled = loading;
 }
@@ -91,7 +91,7 @@ function renderMarkdown(text) {
 function updateModeUI(mode) {
   const isRag = mode === 'rag';
   const label = isRag ? '📄 RAG Mode' : '🔍 Search Mode';
-  const cls   = isRag ? 'mode-rag' : 'mode-search';
+  const cls = isRag ? 'mode-rag' : 'mode-search';
   modeBadge.textContent = '';
   modeBadge.className = `mode-badge ${cls}`;
   modeBadge.innerHTML = `<span class="mode-icon">${isRag ? '📄' : '🔍'}</span><span class="mode-label">${isRag ? 'RAG Mode' : 'Search Mode'}</span>`;
@@ -256,10 +256,10 @@ configForm.addEventListener('submit', async (e) => {
   setLoading(configSubmit, true);
 
   const payload = {
-    groq_api_key:     document.getElementById('groq-key').value.trim(),
-    model_name:       document.getElementById('model-name').value.trim() || 'gemma2-9b-it',
-    tavily_api_key:   document.getElementById('tavily-key').value.trim(),
-    langchain_api_key:document.getElementById('langchain-key').value.trim() || null,
+    groq_api_key: document.getElementById('groq-key').value.trim(),
+    model_name: document.getElementById('model-name').value.trim() || 'llama-3.1-8b-instant',
+    tavily_api_key: document.getElementById('tavily-key').value.trim(),
+    langchain_api_key: document.getElementById('langchain-key').value.trim() || null,
   };
 
   try {

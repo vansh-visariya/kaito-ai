@@ -122,7 +122,7 @@ def model_create(
 
     Args:
         groq_api_key: Groq API key for LLM inference.
-        model_name: Groq model identifier (e.g. ``gemma2-9b-it``).
+        model_name: Groq model identifier (e.g. ``llama-3.1-8b-instant``).
         tavily_api_key: Tavily API key for web search.
 
     Returns:

@@ -16,9 +16,8 @@ import json
 import logging
 import os
 import tempfile
+from functools import lru_cache
 from typing import List
-
-import streamlit as st
 from langchain_core.prompts import PromptTemplate
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
@@ -160,7 +159,7 @@ def _format_documents(documents: List) -> str:
 # ---------------------------------------------------------------------------
 # Embedding & vector-store setup
 # ---------------------------------------------------------------------------
-@st.cache_resource
+@lru_cache(maxsize=1)
 def setup_embeddings() -> HuggingFaceEmbeddings:
     """Initialise and cache the HuggingFace embedding model."""
     logger.info("Loading embedding model: %s", DEFAULT_EMBEDDING_MODEL)
@@ -171,7 +170,7 @@ def setup_vector_store(files) -> Chroma:
     """Create a ChromaDB vector store from uploaded PDF files.
 
     Args:
-        files: Streamlit ``UploadedFile`` objects (PDF).
+        files: File-like objects with ``.name`` and ``.getvalue()`` (PDF).
 
     Returns:
         A populated :class:`Chroma` vector store.
@@ -229,7 +228,7 @@ def create_rag_chain(
     Args:
         groq_api_key: Groq API key for LLM inference.
         model_name: Groq model identifier.
-        files: Streamlit ``UploadedFile`` objects (PDF).
+        files: File-like objects with ``.name`` and ``.getvalue()`` (PDF).
         tavily_api_key: Tavily API key for web-search fallback.
 
     Returns:

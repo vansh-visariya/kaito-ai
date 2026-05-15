@@ -1,15 +1,20 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Kaito AI — Intelligent Chat Assistant</title>
-  <meta name="description" content="Kaito AI is an intelligent chatbot with web search and document analysis (RAG) capabilities powered by Groq LLMs." />
+  <meta name="description"
+    content="Kaito AI is an intelligent chatbot with web search and document analysis (RAG) capabilities powered by Groq LLMs." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
+
 <body>
   <!-- ===================== CONFIG MODAL ===================== -->
   <div id="config-overlay" class="modal-overlay active">
@@ -29,7 +34,11 @@
           <div class="input-wrapper">
             <input type="password" id="groq-key" placeholder="gsk_..." required autocomplete="off" />
             <button type="button" class="toggle-visibility" data-target="groq-key" aria-label="Toggle visibility">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
           </div>
         </div>
@@ -37,9 +46,9 @@
         <div class="form-group">
           <label for="model-name">Model</label>
           <div class="input-wrapper">
-            <input type="text" id="model-name" value="gemma2-9b-it" autocomplete="off" />
+            <input type="text" id="model-name" value="llama-3.1-8b-instant" autocomplete="off" />
           </div>
-          <span class="form-hint">e.g. gemma2-9b-it, llama3-8b-8192, mixtral-8x7b-32768</span>
+          <span class="form-hint">e.g. llama-3.1-8b-instant, llama3-8b-8192, mixtral-8x7b-32768</span>
         </div>
 
         <div class="form-group">
@@ -47,7 +56,11 @@
           <div class="input-wrapper">
             <input type="password" id="tavily-key" placeholder="tvly-..." autocomplete="off" />
             <button type="button" class="toggle-visibility" data-target="tavily-key" aria-label="Toggle visibility">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
           </div>
         </div>
@@ -57,7 +70,11 @@
           <div class="input-wrapper">
             <input type="password" id="langchain-key" placeholder="ls__..." autocomplete="off" />
             <button type="button" class="toggle-visibility" data-target="langchain-key" aria-label="Toggle visibility">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
           </div>
         </div>
@@ -84,14 +101,23 @@
         </div>
         <span class="sidebar-title">Kaito <span class="gradient-text">AI</span></span>
         <button id="sidebar-toggle" class="icon-btn" aria-label="Toggle sidebar">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
         </button>
       </div>
 
       <!-- New Chat -->
       <div class="sidebar-section">
         <button id="new-chat-btn" class="btn-new-chat">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19" />
+            <line x1="5" y1="12" x2="19" y2="12" />
+          </svg>
           New Chat
         </button>
       </div>
@@ -117,7 +143,11 @@
           <p class="empty-hint">No documents uploaded</p>
         </div>
         <button id="clear-docs-btn" class="btn-ghost btn-sm hidden">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <polyline points="3 6 5 6 21 6" />
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+          </svg>
           Clear All Docs
         </button>
       </div>
@@ -125,11 +155,21 @@
       <!-- Cleanup -->
       <div class="sidebar-footer">
         <button id="clean-threads-btn" class="btn-ghost btn-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <path d="M3 6h18" />
+            <path d="M8 6V4h8v2" />
+            <path d="M19 6l-1 14H6L5 6" />
+          </svg>
           Clean Empty Threads
         </button>
         <button id="settings-btn" class="btn-ghost btn-sm">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <circle cx="12" cy="12" r="3" />
+            <path
+              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
           Reconfigure
         </button>
       </div>
@@ -140,7 +180,12 @@
       <!-- Top Bar -->
       <div class="chat-topbar">
         <button id="mob-sidebar-toggle" class="icon-btn mob-only" aria-label="Open sidebar">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
         </button>
         <div class="topbar-title">
           <span id="topbar-thread-label">New Conversation</span>
@@ -162,7 +207,8 @@
           <div class="welcome-chips">
             <button class="chip" data-prompt="What are the latest AI breakthroughs in 2025?">🚀 Latest AI news</button>
             <button class="chip" data-prompt="Explain quantum computing in simple terms">⚛️ Quantum computing</button>
-            <button class="chip" data-prompt="What are the best practices for Python development?">🐍 Python best practices</button>
+            <button class="chip" data-prompt="What are the best practices for Python development?">🐍 Python best
+              practices</button>
             <button class="chip" data-prompt="Summarize the key trends in machine learning">🧠 ML trends</button>
           </div>
         </div>
@@ -175,7 +221,11 @@
       <div class="input-area">
         <!-- Upload indicator -->
         <div id="upload-indicator" class="upload-indicator hidden">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+            <polyline points="14 2 14 8 20 8" />
+          </svg>
           <span id="upload-filename"></span>
           <button id="cancel-upload" class="cancel-upload">×</button>
         </div>
@@ -183,24 +233,27 @@
         <div class="input-row">
           <!-- PDF Upload -->
           <label for="pdf-upload" class="icon-btn upload-btn" title="Upload PDF for RAG analysis">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+              stroke-width="2">
+              <path
+                d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
           </label>
           <input type="file" id="pdf-upload" accept=".pdf" multiple class="hidden" />
 
           <div class="textarea-wrapper">
-            <textarea
-              id="chat-input"
-              placeholder="Ask anything..."
-              rows="1"
-              maxlength="8000"
-            ></textarea>
+            <textarea id="chat-input" placeholder="Ask anything..." rows="1" maxlength="8000"></textarea>
           </div>
 
           <button id="send-btn" class="send-btn" aria-label="Send message" disabled>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M22 2L11 13"/><path d="M22 2L15 22 11 13 2 9l20-7z" fill="none" stroke="currentColor" stroke-width="2"/></svg>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M22 2L11 13" />
+              <path d="M22 2L15 22 11 13 2 9l20-7z" fill="none" stroke="currentColor" stroke-width="2" />
+            </svg>
           </button>
         </div>
-        <p class="input-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line · attach PDF for document analysis</p>
+        <p class="input-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line · attach PDF for
+          document analysis</p>
       </div>
     </main>
   </div>
@@ -215,4 +268,5 @@
 
   <script src="app.js"></script>
 </body>
+
 </html>

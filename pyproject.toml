@@ -7,7 +7,9 @@ license = { text = "MIT" }
 requires-python = ">=3.10"
 
 dependencies = [
-    "streamlit",
+    "fastapi>=0.136.1",
+    "uvicorn[standard]>=0.47.0",
+    "python-multipart>=0.0.28",
     "langchain",
     "langgraph",
     "langchain-groq",
@@ -21,11 +23,8 @@ dependencies = [
     "langchain-huggingface",
     "pypdf",
     "requests",
-    # pysqlite3-binary is Linux-only; required on Streamlit Cloud
+    # pysqlite3-binary is Linux-only (no Windows wheels)
     "pysqlite3-binary ; sys_platform == 'linux'",
-    "fastapi>=0.136.1",
-    "uvicorn[standard]>=0.47.0",
-    "python-multipart>=0.0.28",
 ]
 
 [project.optional-dependencies]

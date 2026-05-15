@@ -1,7 +1,7 @@
 """LangGraph checkpoint memory management using SQLite.
 
 Provides singleton ``SqliteSaver`` instances for the search and RAG agents
-so that conversation state persists across Streamlit reruns.
+so that conversation state persists across API requests.
 """
 
 import logging

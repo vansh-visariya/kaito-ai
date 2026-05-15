@@ -88,7 +88,7 @@ The application will open in your browser at `http://localhost:8501`
 
 ### 1. **Initial Setup**
 - Enter your API keys in the sidebar
-- Choose your preferred model (default: gemma2-9b-it)
+- Choose your preferred model (default: llama-3.1-8b-instant)
 - The app will validate your keys and initialize
 
 ### 2. **Search Mode** 🔍
@@ -137,7 +137,7 @@ clone-chatgpt/
 ## 🔧 Configuration
 
 ### Supported Models
-- `gemma2-9b-it` (default)
+- `llama-3.1-8b-instant` (default)
 - `llama-3.1-70b-versatile`
 - `llama-3.1-8b-instant`
 - `mixtral-8x7b-32768`

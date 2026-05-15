@@ -126,7 +126,7 @@ class GraphManager:
 with st.sidebar:
     st.header("🔑 Configuration")
     groq_api_key = st.text_input("Enter your Groq API key", type="password")
-    model_name = st.text_input("Enter the model you want to use", value="gemma2-9b-it")
+    model_name = st.text_input("Enter the model you want to use", value="llama-3.1-8b-instant")
     langchain_api_key = st.text_input("Enter your LangChain API key", type="password")
     tavily_api_key = st.text_input("Enter your Tavily API key", type="password")
 

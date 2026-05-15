@@ -77,7 +77,7 @@ app.add_middleware(
 class Session:
     def __init__(self) -> None:
         self.groq_api_key: str = ""
-        self.model_name: str = "gemma2-9b-it"
+        self.model_name: str = "llama-3.1-8b-instant"
         self.tavily_api_key: str = ""
         self.langchain_api_key: Optional[str] = None
         self.search_graph = None
@@ -99,7 +99,7 @@ SESSION = Session()
 # ---------------------------------------------------------------------------
 class ConfigRequest(BaseModel):
     groq_api_key: str
-    model_name: str = "gemma2-9b-it"
+    model_name: str = "llama-3.1-8b-instant"
     tavily_api_key: str = ""
     langchain_api_key: Optional[str] = None
 
