@@ -11,6 +11,16 @@ from enum import Enum
 from typing import Optional
 
 # ---------------------------------------------------------------------------
+# Protobuf compatibility fix
+# chromadb bundles opentelemetry-proto whose _pb2.py files were generated
+# with an old protoc version; the pure-Python protobuf implementation is
+# fully compatible and avoids the "Descriptors cannot be created directly"
+# TypeError that appears with protobuf >= 4 on Python 3.13.
+# This MUST be set before any chromadb / opentelemetry import.
+# ---------------------------------------------------------------------------
+os.environ.setdefault("PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION", "python")
+
+# ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
 logging.basicConfig(

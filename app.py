@@ -17,9 +17,20 @@ if sys.platform == "linux":
     except ImportError:
         pass
 
+# ---------------------------------------------------------------------------
+# Protobuf compatibility fix — MUST be set before any chromadb import.
+#
+# chromadb bundles opentelemetry-proto whose _pb2.py files were compiled
+# with an old protoc. The pure-Python protobuf implementation handles these
+# gracefully without the "Descriptors cannot be created directly" TypeError.
+# Setting it here (before every other import) guarantees correct ordering
+# even if Streamlit's module cache loads chromadb through another path.
+# ---------------------------------------------------------------------------
+import os
+os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
+
 import gc
 import logging
-import os
 import shutil
 from typing import Optional
 

@@ -1,15 +1,41 @@
-streamlit
-langchain
-langgraph
-langchain-groq
-python-dotenv
-langgraph-checkpoint-sqlite
-langchain-tavily
-langchain-community
-langchain-chroma
-sentence-transformers
-tavily-python
-langchain-huggingface
-pypdf
-requests
+# ============================================================
+# Kaito-AI dependencies — pinned for reproducibility
+# Generated for: Python 3.13, Windows (dev)
+# ============================================================
+
+# --- FastAPI server ---
+fastapi==0.115.12
+uvicorn[standard]==0.34.3
+python-multipart==0.0.20
+
+# --- LangChain ecosystem (pinned to working set) ---
+langchain==1.3.0
+langchain-core==1.4.0
+langchain-community==0.4.1
+langchain-groq==1.1.2
+langchain-chroma==1.1.0
+langchain-huggingface==1.2.2
+langchain-tavily==0.2.18
+langchain-text-splitters==1.1.2       # PromptTemplate moved here from langchain.text_splitter
+
+# --- LangGraph ---
+langgraph==1.2.0
+langgraph-checkpoint-sqlite==3.1.0
+
+# --- Vector store ---
+# chromadb 1.5.9 has a protobuf/opentelemetry conflict on Python 3.13.
+# Fix: PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python is set in config.py.
+chromadb==1.0.0                        # Last version without the gRPC breakage
+
+# --- Embeddings & ML ---
+sentence-transformers==5.5.0
+
+# --- Utilities ---
+python-dotenv==1.2.2
+pypdf==6.11.0
+tavily-python==0.7.24
+requests==2.34.1
+
+# --- pysqlite3 shim — Linux (Streamlit Cloud) ONLY ---
+# No Windows wheels exist for this package.
 pysqlite3-binary ; sys_platform == "linux"

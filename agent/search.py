@@ -18,7 +18,7 @@ from typing import List, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
 from langchain_core.output_parsers import StrOutputParser
-from langchain.prompts import PromptTemplate
+from langchain_core.prompts import PromptTemplate
 from langchain_groq import ChatGroq
 from langchain_tavily import TavilySearch
 from langgraph.graph import END, START, StateGraph
