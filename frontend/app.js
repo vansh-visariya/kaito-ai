@@ -20,44 +20,44 @@ marked.use(markedHighlight({
 marked.use({ gfm: true, breaks: true });
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
-const configOverlay  = document.getElementById('config-overlay');
-const configForm     = document.getElementById('config-form');
-const configError    = document.getElementById('config-error');
-const configSubmit   = document.getElementById('config-submit');
-const appEl          = document.getElementById('app');
+const configOverlay = document.getElementById('config-overlay');
+const configForm = document.getElementById('config-form');
+const configError = document.getElementById('config-error');
+const configSubmit = document.getElementById('config-submit');
+const appEl = document.getElementById('app');
 
-const sidebar           = document.getElementById('sidebar');
-const sidebarToggle     = document.getElementById('sidebar-toggle');
-const mobSidebarToggle  = document.getElementById('mob-sidebar-toggle');
-const newChatBtn        = document.getElementById('new-chat-btn');
-const threadListEl      = document.getElementById('thread-list');
-const docListEl         = document.getElementById('doc-list');
-const clearDocsBtn      = document.getElementById('clear-docs-btn');
-const cleanThreadsBtn   = document.getElementById('clean-threads-btn');
-const settingsBtn       = document.getElementById('settings-btn');
-const modeBadge         = document.getElementById('mode-badge');
+const sidebar = document.getElementById('sidebar');
+const sidebarToggle = document.getElementById('sidebar-toggle');
+const mobSidebarToggle = document.getElementById('mob-sidebar-toggle');
+const newChatBtn = document.getElementById('new-chat-btn');
+const threadListEl = document.getElementById('thread-list');
+const docListEl = document.getElementById('doc-list');
+const clearDocsBtn = document.getElementById('clear-docs-btn');
+const cleanThreadsBtn = document.getElementById('clean-threads-btn');
+const settingsBtn = document.getElementById('settings-btn');
+const modeBadge = document.getElementById('mode-badge');
 
-const messagesEl    = document.getElementById('messages');
-const welcomeEl     = document.getElementById('welcome');
-const chatInput     = document.getElementById('chat-input');
-const sendBtn       = document.getElementById('send-btn');
-const pdfUpload     = document.getElementById('pdf-upload');
+const messagesEl = document.getElementById('messages');
+const welcomeEl = document.getElementById('welcome');
+const chatInput = document.getElementById('chat-input');
+const sendBtn = document.getElementById('send-btn');
+const pdfUpload = document.getElementById('pdf-upload');
 const uploadIndicator = document.getElementById('upload-indicator');
-const uploadFilename  = document.getElementById('upload-filename');
-const cancelUpload    = document.getElementById('cancel-upload');
-const uploadOverlay   = document.getElementById('upload-overlay');
-const toastEl       = document.getElementById('toast');
-const topbarLabel   = document.getElementById('topbar-thread-label');
-const topbarMode    = document.getElementById('topbar-mode');
+const uploadFilename = document.getElementById('upload-filename');
+const cancelUpload = document.getElementById('cancel-upload');
+const uploadOverlay = document.getElementById('upload-overlay');
+const toastEl = document.getElementById('toast');
+const topbarLabel = document.getElementById('topbar-thread-label');
+const topbarMode = document.getElementById('topbar-mode');
 
 // ── State ─────────────────────────────────────────────────────────────────
 let currentThreadId = null;
-let pendingFiles    = [];
-let isStreaming     = false;
+let pendingFiles = [];
+let isStreaming = false;
 
 // ── Generic API helper (JSON only) ────────────────────────────────────────
 async function api(path, opts = {}) {
-  const res  = await fetch(API + path, opts);
+  const res = await fetch(API + path, opts);
   const data = await res.json();
   if (!res.ok) throw new Error(data.detail || 'API error');
   return data;
@@ -66,7 +66,7 @@ async function api(path, opts = {}) {
 // ── Toast ─────────────────────────────────────────────────────────────────
 function showToast(msg, type = 'info', ms = 2800) {
   toastEl.textContent = msg;
-  toastEl.className   = `toast ${type}`;
+  toastEl.className = `toast ${type}`;
   toastEl.classList.remove('hidden');
   clearTimeout(toastEl._timer);
   toastEl._timer = setTimeout(() => toastEl.classList.add('hidden'), ms);
@@ -74,9 +74,9 @@ function showToast(msg, type = 'info', ms = 2800) {
 
 // ── Misc helpers ──────────────────────────────────────────────────────────
 function setLoading(btn, loading) {
-  const txt  = btn.querySelector('.btn-text');
+  const txt = btn.querySelector('.btn-text');
   const spin = btn.querySelector('.btn-spinner');
-  if (txt)  txt.classList.toggle('hidden', loading);
+  if (txt) txt.classList.toggle('hidden', loading);
   if (spin) spin.classList.toggle('hidden', !loading);
   btn.disabled = loading;
 }
@@ -102,7 +102,7 @@ function addCopyButtons(el) {
   el.querySelectorAll('pre code').forEach(block => {
     if (block.parentElement.querySelector('.copy-btn')) return; // already added
     const btn = document.createElement('button');
-    btn.className   = 'copy-btn';
+    btn.className = 'copy-btn';
     btn.textContent = 'Copy';
     btn.addEventListener('click', () => {
       navigator.clipboard.writeText(block.innerText).then(() => {
@@ -124,9 +124,9 @@ function renderSources(sources, bubble) {
   bar.innerHTML = '<span class="sources-label">Sources</span>';
   sources.forEach(s => {
     const chip = document.createElement('span');
-    chip.className   = 'source-chip';
+    chip.className = 'source-chip';
     chip.textContent = `📄 ${s.file} · p.${s.page}`;
-    chip.title       = `${s.file}, page ${s.page}`;
+    chip.title = `${s.file}, page ${s.page}`;
     bar.appendChild(chip);
   });
   bubble.appendChild(bar);
@@ -135,10 +135,10 @@ function renderSources(sources, bubble) {
 // ── Mode UI ───────────────────────────────────────────────────────────────
 function updateModeUI(mode) {
   const isRag = mode === 'rag';
-  const cls   = isRag ? 'mode-rag' : 'mode-search';
+  const cls = isRag ? 'mode-rag' : 'mode-search';
   modeBadge.className = `mode-badge ${cls}`;
   modeBadge.innerHTML = `<span class="mode-icon">${isRag ? '📄' : '🔍'}</span><span class="mode-label">${isRag ? 'RAG Mode' : 'Search Mode'}</span>`;
-  topbarMode.className   = `topbar-mode ${cls}`;
+  topbarMode.className = `topbar-mode ${cls}`;
   topbarMode.textContent = isRag ? '📄 RAG' : '🔍 Search';
 }
 
@@ -151,14 +151,14 @@ function appendMessage(role, content, sources = []) {
 
   if (role === 'assistant') {
     const av = document.createElement('div');
-    av.className  = 'avatar ai';
+    av.className = 'avatar ai';
     av.textContent = 'K';
     wrapper.appendChild(av);
   }
 
   const bubble = document.createElement('div');
-  bubble.className  = `bubble ${role}`;
-  bubble.innerHTML  = renderMarkdown(content);
+  bubble.className = `bubble ${role}`;
+  bubble.innerHTML = renderMarkdown(content);
   addCopyButtons(bubble);
   renderSources(sources, bubble);
   wrapper.appendChild(bubble);
@@ -171,10 +171,10 @@ function appendMessage(role, content, sources = []) {
 function showTypingIndicator() {
   const wrapper = document.createElement('div');
   wrapper.className = 'msg-wrapper assistant';
-  wrapper.id        = 'typing-indicator';
+  wrapper.id = 'typing-indicator';
 
   const av = document.createElement('div');
-  av.className  = 'avatar ai';
+  av.className = 'avatar ai';
   av.textContent = 'K';
 
   const bubble = document.createElement('div');
@@ -219,9 +219,9 @@ async function loadThreads() {
 
     threads.forEach(t => {
       const item = document.createElement('div');
-      item.className  = `thread-item${t.active ? ' active' : ''}`;
+      item.className = `thread-item${t.active ? ' active' : ''}`;
       item.dataset.id = t.id;
-      item.innerHTML  = `
+      item.innerHTML = `
         <span class="thread-preview">${escapeHtml(t.preview)}</span>
         <button class="thread-delete" title="Delete" data-id="${t.id}">×</button>
       `;
@@ -247,7 +247,7 @@ async function selectThread(tid) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ thread_id: tid }),
     });
-    currentThreadId       = data.thread_id;
+    currentThreadId = data.thread_id;
     topbarLabel.textContent = 'Conversation';
     renderHistory(data.messages);
     updateModeUI(data.mode);
@@ -300,9 +300,9 @@ configForm.addEventListener('submit', async e => {
   setLoading(configSubmit, true);
 
   const payload = {
-    groq_api_key:    document.getElementById('groq-key').value.trim(),
-    model_name:      document.getElementById('model-name').value.trim() || 'llama-3.1-8b-instant',
-    tavily_api_key:  document.getElementById('tavily-key').value.trim(),
+    groq_api_key: document.getElementById('groq-key').value.trim(),
+    model_name: document.getElementById('model-name').value.trim() || 'openai/gpt-oss-20b',
+    tavily_api_key: document.getElementById('tavily-key').value.trim(),
     langchain_api_key: document.getElementById('langchain-key').value.trim() || null,
   };
 
@@ -330,7 +330,7 @@ configForm.addEventListener('submit', async e => {
 document.querySelectorAll('.toggle-visibility').forEach(btn => {
   btn.addEventListener('click', () => {
     const inp = document.getElementById(btn.dataset.target);
-    inp.type  = inp.type === 'password' ? 'text' : 'password';
+    inp.type = inp.type === 'password' ? 'text' : 'password';
   });
 });
 
@@ -338,7 +338,7 @@ document.querySelectorAll('.toggle-visibility').forEach(btn => {
 newChatBtn.addEventListener('click', async () => {
   try {
     const data = await api('/api/threads/new', { method: 'POST' });
-    currentThreadId         = data.thread_id;
+    currentThreadId = data.thread_id;
     topbarLabel.textContent = 'New Conversation';
     clearMessages();
     updateModeUI(data.mode);
@@ -365,7 +365,7 @@ sendBtn.addEventListener('click', handleSend);
 
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
-    chatInput.value  = chip.dataset.prompt;
+    chatInput.value = chip.dataset.prompt;
     sendBtn.disabled = false;
     autoResize();
     chatInput.focus();
@@ -378,9 +378,9 @@ async function handleSend() {
   const text = chatInput.value.trim();
   if (!text && !pendingFiles.length) return;
 
-  isStreaming      = true;
+  isStreaming = true;
   sendBtn.disabled = true;
-  chatInput.value  = '';
+  chatInput.value = '';
   autoResize();
 
   try {
@@ -403,7 +403,7 @@ async function handleSend() {
     wrapper.className = 'msg-wrapper assistant';
 
     const av = document.createElement('div');
-    av.className   = 'avatar ai';
+    av.className = 'avatar ai';
     av.textContent = 'K';
 
     const bubble = document.createElement('div');
@@ -416,9 +416,9 @@ async function handleSend() {
 
     // Open SSE stream via fetch (POST, not EventSource which only does GET)
     const response = await fetch(API + '/api/chat/stream', {
-      method:  'POST',
+      method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ message: text, thread_id: currentThreadId }),
+      body: JSON.stringify({ message: text, thread_id: currentThreadId }),
     });
 
     if (!response.ok) {
@@ -426,10 +426,10 @@ async function handleSend() {
       throw new Error(err.detail || 'Stream failed');
     }
 
-    const reader  = response.body.getReader();
+    const reader = response.body.getReader();
     const decoder = new TextDecoder();
-    let   buffer  = '';
-    let   fullText = '';
+    let buffer = '';
+    let fullText = '';
 
     while (true) {
       const { done, value } = await reader.read();
@@ -474,7 +474,7 @@ async function handleSend() {
     removeTypingIndicator();
     appendMessage('assistant', `⚠️ Error: ${err.message}`);
   } finally {
-    isStreaming      = false;
+    isStreaming = false;
     sendBtn.disabled = !chatInput.value.trim();
   }
 }
@@ -483,14 +483,14 @@ async function handleSend() {
 pdfUpload.addEventListener('change', () => {
   const files = Array.from(pdfUpload.files);
   if (!files.length) return;
-  pendingFiles             = files;
+  pendingFiles = files;
   uploadFilename.textContent = files.length === 1 ? files[0].name : `${files.length} PDFs selected`;
   uploadIndicator.classList.remove('hidden');
   sendBtn.disabled = false;
 });
 
 cancelUpload.addEventListener('click', () => {
-  pendingFiles    = [];
+  pendingFiles = [];
   pdfUpload.value = '';
   uploadIndicator.classList.add('hidden');
   sendBtn.disabled = !chatInput.value.trim();
@@ -502,7 +502,7 @@ async function uploadFiles(files) {
     const form = new FormData();
     files.forEach(f => form.append('files', f));
     const data = await api('/api/documents/upload', { method: 'POST', body: form });
-    currentThreadId         = data.thread_id;
+    currentThreadId = data.thread_id;
     topbarLabel.textContent = 'Document Analysis';
     updateModeUI(data.mode);
     showToast(`✅ ${data.uploaded.length} document(s) uploaded`, 'success');

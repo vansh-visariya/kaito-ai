@@ -302,26 +302,17 @@ class _AgentWrapper:
 
 # System prompts
 _SEARCH_SYSTEM = SystemMessage(content="""\
-You are a knowledgeable AI assistant with access to a live web-search tool.
-
-Rules:
-- Use tavily_search for current events, recent news, or anything your
-  training data may not cover reliably.
-- For well-established facts you are confident about, answer directly.
-- Keep answers concise, accurate, and well-structured.
+You are a knowledgeable AI assistant.
+Answer the user's questions accurately. Use the provided web search tool if you need current events or if you are unsure.
+Keep answers concise and well-structured.
 """)
 
 _RAG_SYSTEM = SystemMessage(content="""\
-You are an AI assistant with access to two tools:
-
-1. document_retriever — searches the uploaded PDF documents (hybrid keyword + semantic).
-2. tavily_search      — searches the live web.
-
-Rules:
-- ALWAYS call document_retriever first for any question.
-- Base your answer primarily on retrieved passages.
-- Only call tavily_search if the documents don't contain the needed info.
-- Quote or paraphrase specific details from retrieved passages when possible.
+You are an AI assistant.
+You have access to a document retriever and a web search tool.
+ALWAYS search the documents first for any user query.
+Base your answer primarily on retrieved passages and quote specific details when possible.
+Only use web search if the documents don't contain the needed info.
 """)
 
 

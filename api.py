@@ -72,7 +72,7 @@ app.add_middleware(
 class Session:
     def __init__(self) -> None:
         self.groq_api_key: str = ""
-        self.model_name: str = "llama-3.1-8b-instant"
+        self.model_name: str = "openai/gpt-oss-20b"
         self.tavily_api_key: str = ""
         self.langchain_api_key: Optional[str] = None
         self.search_graph = None
@@ -102,7 +102,7 @@ def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
 # Pydantic schemas
 class ConfigRequest(BaseModel):
     groq_api_key: str
-    model_name: str = "llama-3.1-8b-instant"
+    model_name: str = "openai/gpt-oss-20b"
     tavily_api_key: str = ""
     langchain_api_key: Optional[str] = None
 

@@ -35,7 +35,7 @@ class Mode(str, Enum):
 
 
 # Application Constants
-DEFAULT_MODEL: str = "llama-3.1-8b-instant"
+DEFAULT_MODEL: str = "openai/gpt-oss-20b"
 DEFAULT_CHUNK_SIZE: int = 1000
 DEFAULT_CHUNK_OVERLAP: int = 200
 DEFAULT_EMBEDDING_MODEL: str = "sentence-transformers/all-mpnet-base-v2"

@@ -30,7 +30,7 @@ An AI-powered chatbot with a **FastAPI backend** and a **static HTML/CSS/JS fron
 ### ⚙️ Tech Stack
 | Layer | Technology |
 |---|---|
-| LLM | Groq (`llama-3.1-8b-instant`, Gemma 2, Mixtral, …) |
+| LLM | Groq (`openai/gpt-oss-20b`, Gemma 2, Mixtral, …) |
 | Agent orchestration | LangGraph `create_react_agent` |
 | Web search | Tavily API |
 | PDF loading | LangChain `PyPDFLoader` |
@@ -134,7 +134,7 @@ Open **http://localhost:8000** in your browser.
 ### First Launch — Configuration
 The app opens a configuration modal. Enter:
 - **Groq API Key** *(required)*
-- **Model name** — default `llama-3.1-8b-instant`; any Groq model works
+- **Model name** — default `openai/gpt-oss-20b`; any Groq model works
 - **Tavily API Key** *(for web search)*
 - **LangSmith API Key** *(optional — enables tracing at smith.langchain.com)*
 
@@ -197,7 +197,7 @@ The FastAPI backend exposes the following endpoints (also served at `/docs` via 
 ### Supported Groq Models
 | Model | Notes |
 |---|---|
-| `llama-3.1-8b-instant` | Default — fast, good quality |
+| `openai/gpt-oss-20b` | Default — fast, good quality |
 | `llama-3.3-70b-versatile` | Strongest reasoning |
 | `gemma2-9b-it` | Google Gemma 2 |
 | `mixtral-8x7b-32768` | Long context (32k tokens) |
