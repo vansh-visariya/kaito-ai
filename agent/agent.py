@@ -206,18 +206,12 @@ def _extract_sources(messages: list) -> list[dict]:
 
 
 # Conversation summarisation helper (#5)
-def _maybe_summarise(agent, llm, config: dict | None) -> None:
-    """Summarise old messages when a thread grows beyond SUMMARISE_AFTER turns.
-
-    Reads the current graph state, computes a summary of all but the last 6
-    messages using the LLM, then calls ``update_state`` to replace the old
-    messages with a compact ``SystemMessage`` + the 6 most recent messages.
-    This keeps the context window manageable without losing important history.
-    """
+async def _maybe_summarise(agent, llm, config: dict | None) -> None:
+    """Summarise old messages when a thread grows beyond SUMMARISE_AFTER turns."""
     if not config:
         return
     try:
-        snapshot = agent.get_state(config)
+        snapshot = await agent.aget_state(config)
     except Exception:
         return
 
@@ -236,7 +230,7 @@ def _maybe_summarise(agent, llm, config: dict | None) -> None:
     )
 
     try:
-        result = llm.invoke([
+        result = await llm.ainvoke([
             SystemMessage(content=(
                 "Summarise the conversation below in 4–6 sentences. "
                 "Preserve key facts, questions, and answers. Be concise."
@@ -253,7 +247,7 @@ def _maybe_summarise(agent, llm, config: dict | None) -> None:
         *recent,
     ]
     try:
-        agent.update_state(config, {"messages": new_messages})
+        await agent.aupdate_state(config, {"messages": new_messages})
         logger.info("Thread summarised — %d messages → summary + 6 recent.", len(to_summarise))
     except Exception as exc:
         logger.warning("update_state failed: %s", exc)
@@ -271,11 +265,14 @@ class _AgentWrapper:
         self._agent = agent
         self._llm   = llm
 
-    def invoke(self, inputs: dict, config: dict | None = None) -> dict:
-        _maybe_summarise(self._agent, self._llm, config)      # #5
+    async def aget_state(self, config: dict):
+        return await self._agent.aget_state(config)
+
+    async def ainvoke(self, inputs: dict, config: dict | None = None) -> dict:
+        await _maybe_summarise(self._agent, self._llm, config)      # #5
 
         question = inputs.get("question", "")
-        result   = self._agent.invoke(
+        result   = await self._agent.ainvoke(
             {"messages": [HumanMessage(content=question)]},
             config=config,
         )
@@ -289,7 +286,7 @@ class _AgentWrapper:
 
     async def astream_events(self, inputs: dict, config: dict | None = None):
         """Async generator of raw LangGraph events for SSE streaming."""
-        _maybe_summarise(self._agent, self._llm, config)      # #5
+        await _maybe_summarise(self._agent, self._llm, config)      # #5
 
         question = inputs.get("question", "")
         async for event in self._agent.astream_events(
@@ -329,7 +326,7 @@ Rules:
 
 
 # Public factories
-def create_search_agent(
+async def create_search_agent(
     groq_api_key: str,
     model_name:   str,
     tavily_api_key: str,
@@ -338,17 +335,17 @@ def create_search_agent(
     configure_environment(groq_api_key, tavily_api_key)
 
     llm    = ChatGroq(model=model_name, streaming=True)
-    memory = get_search_memory()
+    memory = await get_search_memory()
     tools  = [make_web_search_tool()]
 
     agent = create_react_agent(
-        model=llm, tools=tools, checkpointer=memory, state_modifier=_SEARCH_SYSTEM
+        model=llm, tools=tools, checkpointer=memory, prompt=_SEARCH_SYSTEM
     )
     logger.info("Search agent compiled (model=%s).", model_name)
     return _AgentWrapper(agent, llm)
 
 
-def create_rag_agent(
+async def create_rag_agent(
     groq_api_key:   str,
     model_name:     str,
     file_paths:     list[str],
@@ -358,7 +355,7 @@ def create_rag_agent(
     configure_environment(groq_api_key, tavily_api_key)
 
     llm    = ChatGroq(model=model_name, streaming=True)
-    memory = get_rag_memory()
+    memory = await get_rag_memory()
 
     # #6 — hybrid BM25 + vector retriever
     retriever = build_hybrid_retriever(file_paths)
@@ -377,7 +374,7 @@ def create_rag_agent(
     tools = [retriever_tool, make_web_search_tool()]
 
     agent = create_react_agent(
-        model=llm, tools=tools, checkpointer=memory, state_modifier=_RAG_SYSTEM
+        model=llm, tools=tools, checkpointer=memory, prompt=_RAG_SYSTEM
     )
     logger.info("RAG agent compiled (model=%s, %d file(s), hybrid retrieval).",
                 model_name, len(file_paths))

@@ -1207,6 +1207,7 @@ name = "kaito-ai"
 version = "1.0.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "aiosqlite" },
     { name = "fastapi" },
     { name = "langchain" },
     { name = "langchain-chroma" },
@@ -1235,6 +1236,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "aiosqlite", specifier = ">=0.22.1" },
     { name = "fastapi", specifier = ">=0.136.1" },
     { name = "langchain" },
     { name = "langchain-chroma" },

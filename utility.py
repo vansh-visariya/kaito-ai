@@ -14,7 +14,7 @@ from config import Mode
 from database.memory import get_rag_memory, get_search_memory
 
 if TYPE_CHECKING:
-    from langgraph.checkpoint.sqlite import SqliteSaver
+    from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 
 logger = logging.getLogger(__name__)
 
@@ -49,15 +49,15 @@ def validate_groq_key(api_key: str) -> bool:
         return False
 
 
-def get_memory_for_mode(mode: Mode) -> "SqliteSaver":
+async def get_memory_for_mode(mode: Mode) -> "AsyncSqliteSaver":
     """Return the SQLite checkpointer for the given chat *mode*.
 
     Args:
         mode: :class:`Mode.SEARCH` or :class:`Mode.RAG`.
 
     Returns:
-        The corresponding ``SqliteSaver`` instance.
+        The corresponding ``AsyncSqliteSaver`` instance.
     """
     if mode == Mode.RAG:
-        return get_rag_memory()
-    return get_search_memory()
+        return await get_rag_memory()
+    return await get_search_memory()

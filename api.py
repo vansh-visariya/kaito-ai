@@ -33,11 +33,10 @@ if sys.platform == "linux":
 # Protobuf fix — MUST be before any chromadb import
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Form, Cookie, Request, Response, Depends
+from fastapi import FastAPI, HTTPException, UploadFile, File, Cookie, Response, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from langchain_core.messages import AIMessage, HumanMessage
 from pydantic import BaseModel
 
@@ -49,7 +48,6 @@ from config import (
     configure_environment,
     get_thread_mode,
 )
-from database.memory import get_rag_memory, get_search_memory
 from utility import generate_unique_id, get_memory_for_mode, validate_groq_key
 
 # Logging
@@ -123,29 +121,29 @@ def _create_thread_id(mode: Mode) -> str:
     return f"{THREAD_PREFIX[mode]}{generate_unique_id()}"
 
 
-def _get_search_graph(session: Session):
+async def _get_search_graph(session: Session):
     if not session.search_graph:
-        session.search_graph = create_search_agent(
+        session.search_graph = await create_search_agent(
             session.groq_api_key, session.model_name, session.tavily_api_key
         )
     return session.search_graph
 
 
-def _get_graph_for_thread(session: Session, thread_id: str):
+async def _get_graph_for_thread(session: Session, thread_id: str):
     mode = get_thread_mode(thread_id)
     if mode == Mode.RAG:
         if not session.rag_graph:
             raise HTTPException(status_code=400, detail="RAG graph not available. Upload documents first.")
         return session.rag_graph
-    return _get_search_graph(session)
+    return await _get_search_graph(session)
 
 
-def _load_conversation(session: Session, thread_id: str) -> list[dict]:
+async def _load_conversation(session: Session, thread_id: str) -> list[dict]:
     try:
-        graph = _get_graph_for_thread(session, thread_id)
+        graph = await _get_graph_for_thread(session, thread_id)
     except HTTPException:
         return []
-    state = graph.get_state(config={"configurable": {"thread_id": thread_id}})
+    state = await graph.aget_state(config={"configurable": {"thread_id": thread_id}})
     messages = state.values.get("messages", [])
     result = []
     for msg in messages:
@@ -156,23 +154,23 @@ def _load_conversation(session: Session, thread_id: str) -> list[dict]:
     return result
 
 
-def _delete_thread_from_db(thread_id: str) -> bool:
+async def _delete_thread_from_db(thread_id: str) -> bool:
     mode = get_thread_mode(thread_id)
-    memory = get_memory_for_mode(mode)
+    memory = await get_memory_for_mode(mode)
     try:
-        cursor = memory.conn.cursor()
-        cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
-        memory.conn.commit()
+        async with memory.conn.cursor() as cursor:
+            await cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
+        await memory.conn.commit()
         return True
     except Exception as exc:
         logger.exception("Failed to delete thread %s: %s", thread_id, exc)
         return False
 
 
-def _thread_preview(session: Session, thread_id: str) -> str:
+async def _thread_preview(session: Session, thread_id: str) -> str:
     mode = get_thread_mode(thread_id)
     icon = "📄" if mode == Mode.RAG else "🔍"
-    messages = _load_conversation(session, thread_id)
+    messages = await _load_conversation(session, thread_id)
     if messages:
         content = messages[0]["content"]
         preview = content[:40] + "..." if len(content) > 40 else content
@@ -247,7 +245,7 @@ async def list_threads(session: Session = Depends(get_session)):
     for tid in reversed(session.thread_list):
         threads.append({
             "id": tid,
-            "preview": _thread_preview(session, tid),
+            "preview": await _thread_preview(session, tid),
             "mode": get_thread_mode(tid).value,
             "active": tid == session.current_thread_id,
         })
@@ -271,7 +269,7 @@ async def select_thread(req: ThreadDeleteRequest, session: Session = Depends(get
         raise HTTPException(status_code=404, detail="Thread not found.")
     session.current_thread_id = thread_id
     session.current_mode = get_thread_mode(thread_id)
-    messages = _load_conversation(session, thread_id)
+    messages = await _load_conversation(session, thread_id)
     return {"thread_id": thread_id, "messages": messages, "mode": session.current_mode.value}
 
 
@@ -281,7 +279,7 @@ async def delete_thread(thread_id: str, session: Session = Depends(get_session))
         raise HTTPException(status_code=404, detail="Thread not found.")
     if len(session.thread_list) <= 1:
         raise HTTPException(status_code=400, detail="Cannot delete the only thread.")
-    _delete_thread_from_db(thread_id)
+    await _delete_thread_from_db(thread_id)
     session.thread_list.remove(thread_id)
     if session.current_thread_id == thread_id:
         session.current_thread_id = session.thread_list[-1]
@@ -295,8 +293,8 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
     for tid in list(session.thread_list):
         if tid == session.current_thread_id:
             continue
-        if not _load_conversation(session, tid):
-            _delete_thread_from_db(tid)
+        if not await _load_conversation(session, tid):
+            await _delete_thread_from_db(tid)
             session.thread_list.remove(tid)
             deleted.append(tid)
     return {"deleted": deleted, "count": len(deleted)}
@@ -311,11 +309,11 @@ async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     if thread_id not in session.thread_list:
         session.thread_list.append(thread_id)
 
-    graph = _get_graph_for_thread(session, thread_id)
+    graph = await _get_graph_for_thread(session, thread_id)
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
-        result = graph.invoke({"question": req.message}, config=config)
+        result = await graph.ainvoke({"question": req.message}, config=config)
         response = result.get("generation", "Sorry, I couldn't generate a response.")
         sources  = result.get("sources", [])
     except Exception as exc:
@@ -339,7 +337,7 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
     if thread_id not in session.thread_list:
         session.thread_list.append(thread_id)
 
-    graph  = _get_graph_for_thread(session, thread_id)
+    graph  = await _get_graph_for_thread(session, thread_id)
     config = {"configurable": {"thread_id": thread_id}}
 
     async def generate():
@@ -396,7 +394,7 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
 
 @app.get("/api/chat/{thread_id}/history")
 async def chat_history(thread_id: str, session: Session = Depends(get_session)):
-    messages = _load_conversation(session, thread_id)
+    messages = await _load_conversation(session, thread_id)
     return {"thread_id": thread_id, "messages": messages}
 
 
@@ -425,7 +423,7 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
         tmp_paths = [path for _, path in uploads]
         saved     = [name for name, _ in uploads]
 
-        session.rag_graph = create_rag_agent(
+        session.rag_graph = await create_rag_agent(
             session.groq_api_key,
             session.model_name,
             tmp_paths,
