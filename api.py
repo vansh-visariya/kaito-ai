@@ -1,12 +1,4 @@
 """Kaito-AI — FastAPI backend.
-
-Replaces the Streamlit app.py with a proper REST API that serves the
-static HTML/CSS/JS frontend and handles all chatbot logic.
-
-Improvements in this version:
-#1 Streaming Responses (SSE) via /api/chat/stream
-#4 Multi-User Session Support via Cookies
-
 Run with:
     uvicorn api:app --reload --port 8000
 """
@@ -70,7 +62,8 @@ app.add_middleware(
 
 # Multi-User Session Store (#4)
 class Session:
-    def __init__(self) -> None:
+    def __init__(self, session_id: str) -> None:
+        self.id = session_id
         self.groq_api_key: str = ""
         self.model_name: str = "openai/gpt-oss-20b"
         self.tavily_api_key: str = ""
@@ -81,6 +74,7 @@ class Session:
         self.uploaded_docs: list[str] = []
         self.thread_list: list[str] = []
         self.current_thread_id: str = ""
+        self.vector_store_dir: str = f"{VECTOR_STORE_DIR}_{session_id}"
 
     def is_configured(self) -> bool:
         return bool(self.groq_api_key)
@@ -88,6 +82,38 @@ class Session:
 
 SESSIONS: dict[str, Session] = {}
 
+def save_sessions():
+    data = {}
+    for sid, s in SESSIONS.items():
+        data[sid] = {
+            "thread_list": s.thread_list,
+            "current_thread_id": s.current_thread_id,
+            "uploaded_docs": s.uploaded_docs,
+            "current_mode": s.current_mode.value,
+            "vector_store_dir": s.vector_store_dir,
+        }
+    Path("database").mkdir(exist_ok=True)
+    Path("database/sessions.json").write_text(json.dumps(data))
+
+def load_sessions():
+    path = Path("database/sessions.json")
+    if not path.exists():
+        return
+    try:
+        data = json.loads(path.read_text())
+        for sid, sdata in data.items():
+            s = Session(sid)
+            s.thread_list = sdata.get("thread_list", [])
+            s.current_thread_id = sdata.get("current_thread_id", "")
+            s.uploaded_docs = sdata.get("uploaded_docs", [])
+            s.current_mode = Mode(sdata.get("current_mode", "search"))
+            s.vector_store_dir = sdata.get("vector_store_dir", f"{VECTOR_STORE_DIR}_{sid}")
+            SESSIONS[sid] = s
+        logger.info("Loaded %d sessions from disk.", len(SESSIONS))
+    except Exception as exc:
+        logger.error("Failed to load sessions: %s", exc)
+
+load_sessions()
 
 def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
     """FastAPI Dependency to get the current user's session."""
@@ -101,6 +127,7 @@ def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
 
 # Pydantic schemas
 class ConfigRequest(BaseModel):
+    username: str
     groq_api_key: str
     model_name: str = "openai/gpt-oss-20b"
     tavily_api_key: str = ""
@@ -185,16 +212,17 @@ async def configure(req: ConfigRequest, response: Response):
     if not validate_groq_key(req.groq_api_key):
         raise HTTPException(status_code=400, detail="Invalid Groq API key.")
 
-    session_id = str(uuid.uuid4())
-    session = Session()
+    session_id = req.username
+    if session_id in SESSIONS:
+        session = SESSIONS[session_id]
+    else:
+        session = Session(session_id)
+        SESSIONS[session_id] = session
 
     session.groq_api_key = req.groq_api_key
     session.model_name = req.model_name
     session.tavily_api_key = req.tavily_api_key
     session.langchain_api_key = req.langchain_api_key
-
-    # Save session
-    SESSIONS[session_id] = session
 
     configure_environment(
         groq_api_key=req.groq_api_key,
@@ -202,10 +230,13 @@ async def configure(req: ConfigRequest, response: Response):
         langchain_api_key=req.langchain_api_key,
     )
 
-    # Bootstrap a default thread
-    tid = _create_thread_id(Mode.SEARCH)
-    session.thread_list.append(tid)
-    session.current_thread_id = tid
+    # Bootstrap a default thread ONLY if none exists
+    if not session.thread_list:
+        tid = _create_thread_id(Mode.SEARCH)
+        session.thread_list.append(tid)
+        session.current_thread_id = tid
+    
+    save_sessions()
 
     response.set_cookie(
         key="session_id",
@@ -259,6 +290,7 @@ async def new_thread(session: Session = Depends(get_session)):
     session.current_mode = Mode.SEARCH
     if tid not in session.thread_list:
         session.thread_list.append(tid)
+    save_sessions()
     return {"thread_id": tid, "mode": Mode.SEARCH.value}
 
 
@@ -269,6 +301,7 @@ async def select_thread(req: ThreadDeleteRequest, session: Session = Depends(get
         raise HTTPException(status_code=404, detail="Thread not found.")
     session.current_thread_id = thread_id
     session.current_mode = get_thread_mode(thread_id)
+    save_sessions()
     messages = await _load_conversation(session, thread_id)
     return {"thread_id": thread_id, "messages": messages, "mode": session.current_mode.value}
 
@@ -282,8 +315,16 @@ async def delete_thread(thread_id: str, session: Session = Depends(get_session))
     await _delete_thread_from_db(thread_id)
     session.thread_list.remove(thread_id)
     if session.current_thread_id == thread_id:
-        session.current_thread_id = session.thread_list[-1]
-        session.current_mode = get_thread_mode(session.current_thread_id)
+        if session.thread_list:
+            session.current_thread_id = session.thread_list[-1]
+            session.current_mode = get_thread_mode(session.current_thread_id)
+        else:
+            # Fallback if empty (shouldn't happen since we block deleting the last one)
+            tid = _create_thread_id(Mode.SEARCH)
+            session.thread_list.append(tid)
+            session.current_thread_id = tid
+            session.current_mode = Mode.SEARCH
+    save_sessions()
     return {"deleted": thread_id, "current_thread_id": session.current_thread_id}
 
 
@@ -297,6 +338,8 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
             await _delete_thread_from_db(tid)
             session.thread_list.remove(tid)
             deleted.append(tid)
+    if deleted:
+        save_sessions()
     return {"deleted": deleted, "count": len(deleted)}
 
 
@@ -399,55 +442,92 @@ async def chat_history(thread_id: str, session: Session = Depends(get_session)):
 
 
 # Routes — Documents (RAG)
+UPLOADS_DIR = Path("uploads")
+
 @app.post("/api/documents/upload")
 async def upload_documents(files: list[UploadFile] = File(...), session: Session = Depends(get_session)):
-    """Save uploaded PDFs to temp files, build the RAG chain, then clean up."""
-    import tempfile
+    """Save uploaded PDFs to session dir, build the RAG chain."""
+    session_uploads_dir = UPLOADS_DIR / session.id
+    session_uploads_dir.mkdir(parents=True, exist_ok=True)
 
-    uploads: list[tuple[str, str]] = []
+    saved_files = []
 
-    try:
-        for upload in files:
-            if not (upload.filename or "").lower().endswith(".pdf"):
-                raise HTTPException(status_code=400, detail=f"{upload.filename!r} is not a PDF.")
-            content = await upload.read()
-            if not content:
-                raise HTTPException(status_code=400, detail=f"{upload.filename!r} is empty.")
+    for upload in files:
+        if not (upload.filename or "").lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"{upload.filename!r} is not a PDF.")
+        content = await upload.read()
+        if not content:
+            raise HTTPException(status_code=400, detail=f"{upload.filename!r} is empty.")
+        
+        file_path = session_uploads_dir / upload.filename
+        file_path.write_bytes(content)
+        saved_files.append(upload.filename)
+        logger.info("Saved upload %r → %s (%d bytes)", upload.filename, file_path, len(content))
+
+    all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
+
+    session.rag_graph = await create_rag_agent(
+        session.groq_api_key,
+        session.model_name,
+        all_paths,
+        session.tavily_api_key,
+        session.vector_store_dir,
+    )
+    session.current_mode = Mode.RAG
+
+    for name in saved_files:
+        if name not in session.uploaded_docs:
+            session.uploaded_docs.append(name)
             
-            tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".pdf")
-            tmp.write(content)
-            tmp.close()
-            uploads.append((upload.filename, tmp.name))
-            logger.info("Saved upload %r → %s (%d bytes)", upload.filename, tmp.name, len(content))
+    save_sessions()
 
-        tmp_paths = [path for _, path in uploads]
-        saved     = [name for name, _ in uploads]
+    tid = _create_thread_id(Mode.RAG)
+    session.current_thread_id = tid
+    if tid not in session.thread_list:
+        session.thread_list.append(tid)
 
-        session.rag_graph = await create_rag_agent(
-            session.groq_api_key,
-            session.model_name,
-            tmp_paths,
-            session.tavily_api_key,
-        )
-        session.current_mode = Mode.RAG
+    return {"uploaded": session.uploaded_docs, "thread_id": tid, "mode": Mode.RAG.value}
 
-        for name in saved:
-            if name not in session.uploaded_docs:
-                session.uploaded_docs.append(name)
 
-        tid = _create_thread_id(Mode.RAG)
+@app.delete("/api/documents/{filename}")
+async def delete_document(filename: str, session: Session = Depends(get_session)):
+    session_uploads_dir = UPLOADS_DIR / session.id
+    file_path = session_uploads_dir / filename
+
+    if file_path.exists():
+        # 1. Delete from vector store
+        from agent.agent import delete_document_from_vector_store
+        delete_document_from_vector_store(str(file_path.absolute()), session.vector_store_dir)
+        
+        # 2. Delete file
+        file_path.unlink(missing_ok=True)
+    
+    if filename in session.uploaded_docs:
+        session.uploaded_docs.remove(filename)
+        save_sessions()
+
+    all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
+    
+    if not all_paths:
+        # No documents left -> switch to search mode
+        session.rag_graph = None
+        session.current_mode = Mode.SEARCH
+        save_sessions()
+        tid = _create_thread_id(Mode.SEARCH)
         session.current_thread_id = tid
         if tid not in session.thread_list:
             session.thread_list.append(tid)
-
-        return {"uploaded": saved, "thread_id": tid, "mode": Mode.RAG.value}
-
-    finally:
-        for _, path in uploads:
-            try:
-                os.unlink(path)
-            except OSError:
-                pass
+        return {"deleted": filename, "thread_id": tid, "mode": Mode.SEARCH.value}
+    else:
+        # Rebuild RAG agent (updates BM25, re-instantiates hybrid retriever)
+        session.rag_graph = await create_rag_agent(
+            session.groq_api_key,
+            session.model_name,
+            all_paths,
+            session.tavily_api_key,
+            session.vector_store_dir,
+        )
+        return {"deleted": filename, "mode": Mode.RAG.value}
 
 
 @app.get("/api/documents")
@@ -459,13 +539,19 @@ async def list_documents(session: Session = Depends(get_session)):
 async def clear_documents(session: Session = Depends(get_session)):
     session.rag_graph = None
     gc.collect()
-    # In a multi-user environment, wiping the entire VECTOR_STORE_DIR breaks 
-    # other sessions that are using it! For production this needs to be 
-    # a per-session directory. For MVP, we will still wipe it to clear space.
-    if os.path.exists(VECTOR_STORE_DIR):
-        shutil.rmtree(VECTOR_STORE_DIR)
+    
+    if os.path.exists(session.vector_store_dir):
+        shutil.rmtree(session.vector_store_dir, ignore_errors=True)
+        
+    session_uploads_dir = UPLOADS_DIR / session.id
+    if session_uploads_dir.exists():
+        shutil.rmtree(session_uploads_dir, ignore_errors=True)
+    
     session.uploaded_docs = []
     session.current_mode = Mode.SEARCH
+    # Generate a fresh unique directory so next upload doesn't hit Windows file lock
+    session.vector_store_dir = f"{VECTOR_STORE_DIR}_{uuid.uuid4().hex}"
+    save_sessions()
 
     tid = _create_thread_id(Mode.SEARCH)
     session.current_thread_id = tid

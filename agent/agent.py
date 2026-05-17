@@ -4,16 +4,6 @@ Agents
 ------
 create_search_agent — web search only.       Tools: [tavily_search]
 create_rag_agent    — docs + web fallback.   Tools: [document_retriever, tavily_search]
-
-Improvements in this version
------------------------------
-#5  Conversation summarisation — when a thread exceeds SUMMARISE_AFTER
-    conversational messages, old messages are summarised by the LLM and
-    replaced with a compact SystemMessage before the next call.
-
-#6  Hybrid BM25 + vector retrieval — a simple weighted ensemble of a
-    BM25Retriever (keyword matching) and a ChromaDB vector retriever
-    (semantic similarity) gives better recall for technical documents.
 """
 
 import logging
@@ -151,11 +141,26 @@ def _load_and_split(file_paths: list[str]) -> list[Document]:
     return splits
 
 
-def build_hybrid_retriever(file_paths: list[str]) -> _HybridRetriever:
+def delete_document_from_vector_store(file_path: str, vector_store_dir: str):
+    """Delete all chunks associated with a specific file from Chroma."""
+    vector_store = Chroma(
+        persist_directory=vector_store_dir,
+        embedding_function=_load_embeddings(),
+    )
+    # Use underlying chromadb collection to delete by metadata
+    try:
+        vector_store._collection.delete(where={"source": file_path})
+        logger.info("Deleted %s from vector store %s", file_path, vector_store_dir)
+    except Exception as exc:
+        logger.warning("Failed to delete %s from vector store: %s", file_path, exc)
+
+
+def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _HybridRetriever:
     """Build and return a hybrid BM25 + ChromaDB retriever.
 
     Args:
         file_paths: Absolute paths to PDF files on disk.
+        vector_store_dir: Directory to persist the Chroma database.
 
     Returns:
         A :class:`_HybridRetriever` combining keyword and semantic search.
@@ -165,7 +170,7 @@ def build_hybrid_retriever(file_paths: list[str]) -> _HybridRetriever:
     vector_store = Chroma.from_documents(
         documents=splits,
         embedding=_load_embeddings(),
-        persist_directory=VECTOR_STORE_DIR,
+        persist_directory=vector_store_dir,
     )
 
     bm25   = BM25Retriever.from_documents(splits, k=DEFAULT_RETRIEVER_K)
@@ -341,6 +346,7 @@ async def create_rag_agent(
     model_name:     str,
     file_paths:     list[str],
     tavily_api_key: str,
+    vector_store_dir: str,
 ) -> _AgentWrapper:
     """Build a ReAct RAG agent with hybrid retrieval + web-search fallback."""
     configure_environment(groq_api_key, tavily_api_key)
@@ -349,7 +355,7 @@ async def create_rag_agent(
     memory = await get_rag_memory()
 
     # #6 — hybrid BM25 + vector retriever
-    retriever = build_hybrid_retriever(file_paths)
+    retriever = build_hybrid_retriever(file_paths, vector_store_dir)
 
     retriever_tool = create_retriever_tool(
         retriever,

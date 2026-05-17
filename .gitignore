@@ -12,4 +12,4 @@ rag_chatbot.db-shm
 rag_chatbot.db-wal
 
 ## chroma vector store
-chroma_langchain_db
+chroma_langchain_db*

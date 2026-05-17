@@ -285,11 +285,32 @@ async function loadDocuments() {
       const item = document.createElement('div');
       item.className = 'doc-item';
       item.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-        <span class="doc-name">${escapeHtml(name)}</span>`;
+        <span class="doc-name">${escapeHtml(name)}</span>
+        <button class="doc-delete" data-name="${escapeHtml(name)}" title="Delete document">×</button>`;
+      
+      item.querySelector('.doc-delete').addEventListener('click', e => {
+        e.stopPropagation();
+        deleteDocument(name);
+      });
       docListEl.appendChild(item);
     });
   } catch (err) {
     console.error('loadDocuments:', err);
+  }
+}
+
+async function deleteDocument(name) {
+  try {
+    const data = await api(`/api/documents/${encodeURIComponent(name)}`, { method: 'DELETE' });
+    showToast(`Deleted ${name}`, 'success');
+    updateModeUI(data.mode);
+    if (data.thread_id && data.thread_id !== currentThreadId) {
+      currentThreadId = data.thread_id;
+      clearMessages();
+    }
+    await loadDocuments();
+  } catch (err) {
+    showToast(err.message, 'error');
   }
 }
 
@@ -300,6 +321,7 @@ configForm.addEventListener('submit', async e => {
   setLoading(configSubmit, true);
 
   const payload = {
+    username: document.getElementById('username').value.trim(),
     groq_api_key: document.getElementById('groq-key').value.trim(),
     model_name: document.getElementById('model-name').value.trim() || 'openai/gpt-oss-20b',
     tavily_api_key: document.getElementById('tavily-key').value.trim(),
