@@ -13,3 +13,5 @@ rag_chatbot.db-wal
 
 ## chroma vector store
 chroma_langchain_db*
+uploads
+database/sessions.json

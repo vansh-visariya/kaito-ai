@@ -1,23 +1,23 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
-  --bg-base:    #0d0f14;
-  --bg-surface: #13161e;
-  --bg-card:    #1a1d28;
-  --bg-hover:   #1f2333;
-  --border:     rgba(255,255,255,0.07);
-  --border-act: rgba(99,102,241,0.5);
+  --bg-base:    #000000;
+  --bg-surface: #0a0a0a;
+  --bg-card:    #111111;
+  --bg-hover:   #1a1a1a;
+  --border:     rgba(255,255,255,0.15);
+  --border-act: rgba(255,255,255,0.8);
 
-  --accent:     #6366f1;
-  --accent-2:   #8b5cf6;
-  --accent-glow:rgba(99,102,241,0.25);
+  --accent:     #ffffff;
+  --accent-2:   #cccccc;
+  --accent-glow:rgba(255,255,255,0.15);
 
-  --text-primary:   #f0f0f8;
-  --text-secondary: #8b8fa8;
-  --text-muted:     #4a4e6a;
+  --text-primary:   #ffffff;
+  --text-secondary: #a3a3a3;
+  --text-muted:     #525252;
 
-  --user-bubble:  linear-gradient(135deg,#6366f1,#8b5cf6);
-  --ai-bubble:    #1a1d28;
+  --user-bubble:  linear-gradient(135deg, #333333, #111111);
+  --ai-bubble:    #111111;
 
   --radius-sm: 8px;
   --radius-md: 14px;

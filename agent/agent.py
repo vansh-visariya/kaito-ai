@@ -154,6 +154,16 @@ def delete_document_from_vector_store(file_path: str, vector_store_dir: str):
     except Exception as exc:
         logger.warning("Failed to delete %s from vector store: %s", file_path, exc)
 
+def add_document_to_vector_store(file_path: str, vector_store_dir: str):
+    """Add a single document to the Chroma vector store."""
+    splits = _load_and_split([file_path])
+    vector_store = Chroma(
+        persist_directory=vector_store_dir,
+        embedding_function=_load_embeddings(),
+    )
+    vector_store.add_documents(splits)
+    logger.info("Added %s to vector store %s", file_path, vector_store_dir)
+
 
 def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _HybridRetriever:
     """Build and return a hybrid BM25 + ChromaDB retriever.
@@ -167,10 +177,9 @@ def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _Hyb
     """
     splits = _load_and_split(file_paths)
 
-    vector_store = Chroma.from_documents(
-        documents=splits,
-        embedding=_load_embeddings(),
+    vector_store = Chroma(
         persist_directory=vector_store_dir,
+        embedding_function=_load_embeddings(),
     )
 
     bm25   = BM25Retriever.from_documents(splits, k=DEFAULT_RETRIEVER_K)

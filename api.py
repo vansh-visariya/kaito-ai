@@ -160,18 +160,54 @@ async def _get_graph_for_thread(session: Session, thread_id: str):
     mode = get_thread_mode(thread_id)
     if mode == Mode.RAG:
         if not session.rag_graph:
-            raise HTTPException(status_code=400, detail="RAG graph not available. Upload documents first.")
+            # If server restarted, session.rag_graph is None. Rebuild if documents exist.
+            session_uploads_dir = Path("uploads") / session.id
+            if session_uploads_dir.exists():
+                all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
+                if all_paths:
+                    session.rag_graph = await create_rag_agent(
+                        session.groq_api_key,
+                        session.model_name,
+                        all_paths,
+                        session.tavily_api_key,
+                        session.vector_store_dir,
+                    )
+            
+            if not session.rag_graph:
+                raise HTTPException(status_code=400, detail="RAG graph not available. Upload documents first.")
         return session.rag_graph
     return await _get_search_graph(session)
 
 
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
+from typing import Annotated, TypedDict
+from database.memory import get_rag_memory, get_search_memory
+
+class _DummyState(TypedDict):
+    messages: Annotated[list, add_messages]
+
+async def _read_thread_state(thread_id: str) -> list:
+    mode = get_thread_mode(thread_id)
+    memory = await get_rag_memory() if mode == Mode.RAG else await get_search_memory()
+    
+    builder = StateGraph(_DummyState)
+    builder.add_node("dummy", lambda x: x)
+    builder.set_entry_point("dummy")
+    graph = builder.compile(checkpointer=memory)
+    
+    config = {"configurable": {"thread_id": thread_id}}
+    state = await graph.aget_state(config)
+    return state.values.get("messages", [])
+
+
 async def _load_conversation(session: Session, thread_id: str) -> list[dict]:
     try:
-        graph = await _get_graph_for_thread(session, thread_id)
-    except HTTPException:
+        messages = await _read_thread_state(thread_id)
+    except Exception as exc:
+        logger.error("Failed to read thread state for %s: %s", thread_id, exc)
         return []
-    state = await graph.aget_state(config={"configurable": {"thread_id": thread_id}})
-    messages = state.values.get("messages", [])
+        
     result = []
     for msg in messages:
         if isinstance(msg, HumanMessage):
@@ -463,6 +499,10 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
         file_path.write_bytes(content)
         saved_files.append(upload.filename)
         logger.info("Saved upload %r → %s (%d bytes)", upload.filename, file_path, len(content))
+
+        # Add to vector store individually
+        from agent.agent import add_document_to_vector_store
+        add_document_to_vector_store(str(file_path.absolute()), session.vector_store_dir)
 
     all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
 
