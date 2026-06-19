@@ -73,6 +73,7 @@ class _HybridRetriever(BaseRetriever):
 
     bm25_retriever:   Any
     vector_retriever: Any
+    model_name:       str   = "openai/gpt-oss-20b"
     bm25_weight:      float = 0.4
     k:                int   = DEFAULT_RETRIEVER_K
 
@@ -80,10 +81,20 @@ class _HybridRetriever(BaseRetriever):
         arbitrary_types_allowed = True
 
     def _get_relevant_documents(self, query: str) -> list[Document]:  # type: ignore[override]
-        bm25_docs   = self.bm25_retriever.invoke(query)
-        vector_docs = self.vector_retriever.invoke(query)
+        # Multi-Query Generation
+        try:
+            llm = ChatGroq(model=self.model_name, temperature=0.2)
+            prompt = f"Rewrite the following user query into 3 different search variations to improve retrieval recall from a document database. Return ONLY the 3 variations separated by newlines, no other text.\n\nQuery: {query}"
+            response = llm.invoke(prompt)
+            variations = [v.strip() for v in response.content.split("\n") if v.strip()]
+            logger.info("Multi-Query Variations: %s", variations)
+        except Exception as e:
+            logger.warning("Multi-query generation failed: %s", e)
+            variations = []
+            
+        queries = [query] + variations
 
-        # Reciprocal-rank fusion score
+        # Reciprocal-rank fusion score across all query variations
         scores: dict[str, float] = {}
         doc_map: dict[str, Document] = {}
 
@@ -93,8 +104,11 @@ class _HybridRetriever(BaseRetriever):
                 scores[key]  = scores.get(key, 0.0) + weight / (rank + 1)
                 doc_map[key] = doc
 
-        _score(bm25_docs,   self.bm25_weight)
-        _score(vector_docs, 1.0 - self.bm25_weight)
+        for q in queries:
+            bm25_docs   = self.bm25_retriever.invoke(q)
+            vector_docs = self.vector_retriever.invoke(q)
+            _score(bm25_docs,   self.bm25_weight)
+            _score(vector_docs, 1.0 - self.bm25_weight)
 
         ranked = sorted(scores.items(), key=lambda x: x[1], reverse=True)
         # Take top K * 2 from hybrid search for reranking
@@ -110,7 +124,24 @@ class _HybridRetriever(BaseRetriever):
 
         # Sort documents by cross-encoder score descending
         reranked = sorted(zip(rerank_scores, top_docs), key=lambda x: x[0], reverse=True)
-        return [doc for _, doc in reranked[: self.k]]
+        top_k_docs = [doc for _, doc in reranked[: self.k]]
+        
+        # CRAG Document Grader
+        filtered_docs = []
+        try:
+            grader_llm = ChatGroq(model=self.model_name, temperature=0.0)
+            for doc in top_k_docs:
+                grade_prompt = f"Does the following document contain information relevant to answering the query '{query}'? Answer exactly 'yes' or 'no'.\n\nDocument: {doc.page_content}"
+                grade_res = grader_llm.invoke(grade_prompt).content.strip().lower()
+                if "yes" in grade_res:
+                    filtered_docs.append(doc)
+                else:
+                    logger.info("CRAG Grader discarded an irrelevant document.")
+        except Exception as e:
+            logger.warning("CRAG Grader failed: %s", e)
+            filtered_docs = top_k_docs
+            
+        return filtered_docs
 
     async def _aget_relevant_documents(self, query: str) -> list[Document]:  # type: ignore[override]
         return self._get_relevant_documents(query)
@@ -169,12 +200,13 @@ def add_document_to_vector_store(file_path: str, user_id: int):
     logger.info("Added %s to vector store (user_id=%d)", file_path, user_id)
 
 
-def build_hybrid_retriever(file_paths: list[str], user_id: int) -> _HybridRetriever:
-    """Build and return a hybrid BM25 + ChromaDB retriever.
+def build_hybrid_retriever(file_paths: list[str], user_id: int, model_name: str) -> _HybridRetriever:
+    """Build and return a hybrid BM25 + ChromaDB retriever with CRAG & Multi-Query.
 
     Args:
         file_paths: Absolute paths to PDF files on disk.
         user_id: User ID for filtering the Chroma database.
+        model_name: LLM model name used for query generation and document grading.
 
     Returns:
         A :class:`_HybridRetriever` combining keyword and semantic search.
@@ -197,6 +229,7 @@ def build_hybrid_retriever(file_paths: list[str], user_id: int) -> _HybridRetrie
     return _HybridRetriever(
         bm25_retriever=bm25,
         vector_retriever=vector,
+        model_name=model_name,
         bm25_weight=BM25_WEIGHT,
         k=DEFAULT_RETRIEVER_K,
     )
@@ -364,7 +397,7 @@ async def create_agent(
     # Add document retriever if files are available
     has_docs = file_paths and len(file_paths) > 0
     if has_docs:
-        retriever = build_hybrid_retriever(file_paths, user_id)
+        retriever = build_hybrid_retriever(file_paths, user_id, model_name)
         retriever_tool = create_retriever_tool(
             retriever,
             name="document_retriever",

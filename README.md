@@ -1,278 +1,88 @@
-# 🤖 Kaito-AI — Intelligent Search & Document Analysis
+# Kaito-AI
 
-An AI-powered chatbot with a **FastAPI backend** and a **static HTML/CSS/JS frontend** that combines live web search with PDF document analysis (RAG). Powered by Groq LLMs and LangGraph ReAct agents.
+Kaito-AI is a state-of-the-art conversational AI backend featuring **Corrective RAG (CRAG)**, **Multi-Query HyDE Transformations**, and **Hybrid Search** with cross-encoder reranking. It's built on a secure, multi-user architecture with full state persistence, agent tracking, and server-sent events (SSE) streaming.
 
----
+## 🌟 Key Features
 
-## ✨ Features
+- **Advanced RAG Pipeline:**
+  - **Multi-Query Generation:** Automatically rewrites user queries into 3 unique variations to dramatically improve document retrieval recall.
+  - **Hybrid Retrieval:** Blends keyword (BM25) and semantic (ChromaDB) search using Reciprocal Rank Fusion (RRF).
+  - **Cross-Encoder Reranking:** Reranks all retrieved chunks for maximum precision.
+  - **Corrective RAG (CRAG):** Passes the top chunks through an LLM Grader. If the documents are deemed irrelevant, the agent automatically falls back to **Tavily Web Search**.
+- **Unified LangGraph Agent:** Dynamically arms the agent with a `document_retriever` (if PDFs are uploaded) and a `web_search` fallback tool.
+- **Secure Multi-User Auth:** Built-in SQLite authentication (hashed with `pbkdf2_hmac`), session cookies, and strict data isolation across vectors, threads, and uploads.
+- **Real-time SSE Streaming:** Streams LLM responses token-by-token directly to the frontend.
+- **Thread Branching (Edit & Regenerate):** Allows users to edit past messages and fork the conversation history safely, mimicking ChatGPT's behavior.
+- **Token Tracking & Rate Limits:** Built-in rate limiting that caps daily API usage per user to prevent abuse.
+- **LangSmith Tracing:** Full integration for observing agent actions, token usage, and latency.
 
-### 🔍 Search Mode
-- **Smart web search** — the agent decides when to hit Tavily vs. answer from its own knowledge
-- **Conversation memory** — full thread history persisted in SQLite across requests
-- **Multi-thread** — create and switch between unlimited conversation threads
-- **Conversation Summarisation** — automatically summarises long chat histories to prevent LLM context overflow
+## 🏗️ Architecture
 
-### 📄 Document Analysis (RAG Mode)
-- **Upload PDFs** — one or more documents processed on upload
-- **Hybrid Search (BM25 + Vector)** — uses Reciprocal-Rank Fusion to combine exact keyword matching (BM25) with semantic embeddings (`all-mpnet-base-v2` via ChromaDB) for superior recall
-- **Cross-Encoder Re-ranking** — uses a HuggingFace Cross-Encoder to re-rank the top candidates before they are passed to the LLM, reducing hallucinations
-- **Source Citations** — accurately tracks and displays the source file and page number for every document referenced in the LLM's response
-- **Tool-calling agent** — LLM explicitly calls `document_retriever`, falls back to web search only when needed
-- **Separate thread** — each PDF upload starts a fresh RAG conversation
+The backend uses LangGraph to orchestrate a ReAct agent. Here is how the Advanced RAG retrieval tool works:
 
-### 💬 UI & Thread Management
-- **Streaming Responses (SSE)** — tokens stream in real-time to the frontend UI
-- **Multi-User Session Support** — multiple users can use the app simultaneously thanks to secure cookie-based session management
-- **Rich Markdown** — syntax-highlighted code blocks, tables, and lists rendered cleanly using `marked.js`
-- Create, switch, and delete conversation threads
-- Clean up empty threads in one click
-
-### ⚙️ Tech Stack
-| Layer | Technology |
-|---|---|
-| LLM | Groq (`openai/gpt-oss-20b`, Gemma 2, Mixtral, …) |
-| Agent orchestration | LangGraph `create_react_agent` |
-| Web search | Tavily API |
-| PDF loading | LangChain `PyPDFLoader` |
-| Hybrid Search | `rank-bm25` (Keyword) + `all-mpnet-base-v2` (Semantic) |
-| Re-ranking | HuggingFace `cross-encoder/ms-marco-MiniLM-L-6-v2` |
-| Vector store | ChromaDB |
-| Memory | LangGraph `SqliteSaver` (SQLite) |
-| Backend | FastAPI + Uvicorn |
-| Frontend | Vanilla HTML / CSS / JS (dark-mode UI) |
-
----
-
-## 🏗️ Project Structure
-
-```
-kaito-ai/
-├── api.py                  # FastAPI backend — all REST endpoints
-├── config.py               # App constants, Mode enum, env helpers
-├── utility.py              # ID generation, Groq key validation, memory helpers
-├── requirements.txt        # Pinned dependencies
-├── pyproject.toml          # Project metadata (uv / pip)
-│
-├── agent/
-│   ├── __init__.py
-│   └── agent.py            # Unified agent module
-│                           #   make_web_search_tool()   — shared Tavily tool
-│                           #   build_hybrid_retriever() — BM25 + Vector + Re-ranking
-│                           #   create_search_agent()    — tools: [tavily_search]
-│                           #   create_rag_agent()       — tools: [document_retriever, tavily_search]
-│
-├── database/
-│   ├── __init__.py
-│   └── memory.py           # SqliteSaver singletons for search & RAG threads
-│
-└── frontend/
-    ├── index.html          # Single-page app shell
-    ├── style.css           # Dark-mode design system
-    └── app.js              # All API calls, chat rendering, thread management
+```mermaid
+flowchart TD
+    A[User Query] --> B[Multi-Query Generator]
+    B --> C[Query 1]
+    B --> D[Query 2]
+    B --> E[Query 3]
+    
+    C & D & E --> F[BM25 Keyword Search]
+    C & D & E --> G[ChromaDB Semantic Search]
+    
+    F & G --> H[Reciprocal Rank Fusion]
+    H --> I[Cross-Encoder Reranker]
+    
+    I --> J{CRAG Grader Node}
+    J -->|Relevant| K[Return Top Documents]
+    J -->|Irrelevant| L[Discard Documents]
+    
+    K --> M[LLM Generates Answer]
+    L --> N[Fallback to Web Search Tool]
+    N --> M
 ```
 
----
+## 🚀 Setup & Installation
 
-## 🚀 Quick Start
+### 1. Prerequisites
+- Python 3.11 - 3.13
+- [`uv`](https://github.com/astral-sh/uv) (Extremely fast Python package manager)
 
-### Prerequisites
-- Python ≥ 3.10
-- [`uv`](https://github.com/astral-sh/uv) (recommended) **or** `pip`
-- A [Groq API key](https://console.groq.com/) — **required**
-- A [Tavily API key](https://tavily.com/) — required for web search
-- A [LangSmith API key](https://smith.langchain.com/) — optional (tracing)
-
-### 1. Clone
-```bash
-git clone https://github.com/vansh-visariya/kaito-ai.git
-cd kaito-ai
-```
-
-### 2. Install dependencies
-
-**With uv (recommended):**
+### 2. Install Dependencies
 ```bash
 uv sync
 ```
 
-**With pip:**
-```bash
-pip install -r requirements.txt
-```
+### 3. Environment Variables
+Create a `.env` file in the root directory based on `.env.example`:
 
-### 3. Configure environment
-```bash
-cp .env.example .env
-# Edit .env and fill in your API keys
-```
-
-`.env` variables:
 ```env
 GROQ_API_KEY=gsk_...
 TAVILY_API_KEY=tvly-...
-# LANGCHAIN_API_KEY=ls__...   # optional
-PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python   # required for chromadb on Python 3.13
+LANGCHAIN_API_KEY=lsv2_...
 ```
 
-### 4. Run the server
-
+### 4. Run the Application
+The app runs on FastAPI and Uvicorn.
 ```bash
 uv run uvicorn api:app --reload --port 8000
 ```
+Open `http://localhost:8000` in your browser.
 
-or with plain Python:
+## 🧪 Testing
+
+Kaito-AI comes with a full `pytest` suite for validating authentication, API routes, and agent vector isolation.
+
 ```bash
-uvicorn api:app --reload --port 8000
+uv run pytest tests/
 ```
 
-Open **http://localhost:8000** in your browser.
-
----
-
-## 📖 How to Use
-
-### First Launch — Configuration
-The app opens a configuration modal. Enter:
-- **Groq API Key** *(required)*
-- **Model name** — default `openai/gpt-oss-20b`; any Groq model works
-- **Tavily API Key** *(for web search)*
-- **LangSmith API Key** *(optional — enables tracing at smith.langchain.com)*
-
-Click **Connect**. The key is validated against the Groq API before proceeding.
-
-### Search Mode 🔍
-Type any question in the chat box. The agent:
-1. Decides whether to answer from its own knowledge or call `tavily_search`
-2. Fetches live web results if needed
-3. Generates a final answer with conversation history
-
-Best for: current events, news, general knowledge, coding help.
-
-### RAG Mode 📄
-Click the paperclip icon → select one or more PDF files → press Send.  
-The app:
-1. Saves uploads to temporary files, loads them with `PyPDFLoader`
-2. Splits pages into chunks, embeds them with HuggingFace, stores in ChromaDB
-3. Starts a new `rag_` prefixed conversation thread
-4. On every question, the agent calls `document_retriever` first, falls back to Tavily only if the docs don't have the answer
-
-Best for: research papers, contracts, manuals, reports.
-
-### Thread Management
-| Action | How |
-|---|---|
-| New chat | Click **+ New Chat** in the sidebar |
-| Switch thread | Click any thread in the sidebar list |
-| Delete thread | Hover over a thread → click **×** |
-| Clean empty threads | **Clean Empty Threads** button at the bottom of sidebar |
-| Clear all documents | **Clear All Docs** button (resets RAG, starts new search thread) |
-| Reconfigure API keys | **Reconfigure** button at the bottom of sidebar |
-
----
-
-## 🔌 REST API Reference
-
-The FastAPI backend exposes the following endpoints (also served at `/docs` via Swagger UI):
-
-| Method | Path | Description |
-|---|---|---|
-| `POST` | `/api/config` | Set API keys & model; validates Groq key and sets a session cookie |
-| `GET` | `/api/config/status` | Check if session is configured |
-| `GET` | `/api/threads` | List all conversation threads |
-| `POST` | `/api/threads/new` | Start a new search thread |
-| `POST` | `/api/threads/select` | Switch to an existing thread |
-| `DELETE` | `/api/threads/{id}` | Delete a specific thread |
-| `DELETE` | `/api/threads` | Delete all empty threads |
-| `POST` | `/api/chat` | Send a message, get a response |
-| `POST` | `/api/chat/stream` | Server-Sent Events endpoint to stream tokens and tool actions |
-| `GET` | `/api/chat/{id}/history` | Load message history for a thread |
-| `POST` | `/api/documents/upload` | Upload PDFs → build RAG chain |
-| `GET` | `/api/documents` | List uploaded document names |
-| `DELETE` | `/api/documents` | Clear all documents & vector store |
-
----
-
-## 🛠️ Configuration Reference
-
-### Supported Groq Models
-| Model | Notes |
-|---|---|
-| `openai/gpt-oss-20b` | Default — fast, good quality |
-| `llama-3.3-70b-versatile` | Strongest reasoning |
-| `gemma2-9b-it` | Google Gemma 2 |
-| `mixtral-8x7b-32768` | Long context (32k tokens) |
-
-Any model available on [console.groq.com/docs/models](https://console.groq.com/docs/models) can be entered.
-
-### Chunking & Retrieval Defaults (`config.py`)
-| Setting | Default | Description |
-|---|---|---|
-| `DEFAULT_CHUNK_SIZE` | `1000` | Characters per chunk |
-| `DEFAULT_CHUNK_OVERLAP` | `200` | Overlap between chunks |
-| `DEFAULT_EMBEDDING_MODEL` | `sentence-transformers/all-mpnet-base-v2` | HuggingFace model |
-| `DEFAULT_RETRIEVER_K` | `3` | Top-k chunks retrieved per query |
-| `MAX_GENERATION_RETRIES` | `3` | Max agent tool-call iterations |
-
----
-
-## 🧠 How the Agents Work
-
-Both agents are **LangGraph ReAct agents** (`create_react_agent`). The LLM is given tools and autonomously decides when and how to call them.
-
-### Search Agent
-```
-User question
-      │
-      ▼
-  LLM decides: need web search?
-      ├─ No  → answers from internal knowledge
-      └─ Yes → calls tavily_search → generates answer
-```
-**Memory**: `database/search_chatbot.db`
-
-### RAG Agent
-```
-User question
-      │
-      ▼
-  LLM calls document_retriever("query")
-      │
-      ├─ Relevant chunks found → generates answer from docs
-      └─ Not found → calls tavily_search → generates answer from web
-```
-**Memory**: `database/rag_chatbot.db`
-
-Both agents share:
-- `make_web_search_tool()` — single Tavily tool factory
-- `_AgentWrapper` — adapts the ReAct `messages` interface to the `question/generation` interface used by the API
-
----
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -m 'feat: add my feature'`)
-4. Push and open a Pull Request
-
----
-
-## 📝 License
-
-MIT — see [LICENSE](LICENSE) for details.
-
----
-
-## 🙏 Acknowledgments
-
-- **[LangChain](https://github.com/langchain-ai/langchain)** — LLM framework & tooling
-- **[LangGraph](https://github.com/langchain-ai/langgraph)** — ReAct agent orchestration
-- **[Groq](https://groq.com/)** — Ultra-fast LLM inference
-- **[Tavily](https://tavily.com/)** — AI-optimised web search
-- **[ChromaDB](https://www.trychroma.com/)** — Local vector store
-- **[HuggingFace](https://huggingface.co/)** — Sentence embeddings
-- **[FastAPI](https://fastapi.tiangolo.com/)** — Modern Python web framework
-
----
-
-*Built with Python, FastAPI, and LangGraph*
+## 🛠️ Technology Stack
+- **Framework:** FastAPI
+- **Agent Orchestration:** LangGraph & LangChain
+- **LLM Provider:** Groq (`openai/gpt-oss-20b` or Gemini equivalents via ChatGroq)
+- **Vector DB:** ChromaDB
+- **Embeddings:** HuggingFace (`all-mpnet-base-v2`)
+- **Reranker:** Sentence-Transformers Cross-Encoder (`ms-marco-MiniLM-L-6-v2`)
+- **Web Search:** Tavily
+- **Database:** SQLite (Sync + AsyncSqliteSaver)
