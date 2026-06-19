@@ -28,8 +28,16 @@ DEFAULT_RETRIEVER_K: int = 3
 
 DAILY_TOKEN_LIMIT: int = 50000
 
-VECTOR_STORE_DIR: str = "./chroma_langchain_db"
-CHATBOT_DB_PATH: str = "database/chatbot.db"
+from pathlib import Path
+
+# Data directory for persistent storage (crucial for Docker/Render deployments)
+DATA_DIR = Path(os.environ.get("DATA_DIR", "."))
+
+VECTOR_STORE_DIR: str = str(DATA_DIR / "chroma_langchain_db")
+CHATBOT_DB_PATH: str = str(DATA_DIR / "database" / "chatbot.db")
+USERS_DB_PATH: str = str(DATA_DIR / "database" / "users.db")
+SESSIONS_FILE_PATH: str = str(DATA_DIR / "database" / "sessions.json")
+UPLOADS_DIR_PATH: str = str(DATA_DIR / "uploads")
 
 LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT")
 

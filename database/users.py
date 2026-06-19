@@ -5,7 +5,9 @@ import os
 import sqlite3
 from pathlib import Path
 
-DB_PATH = Path("database/users.db")
+from config import USERS_DB_PATH
+
+DB_PATH = Path(USERS_DB_PATH)
 
 
 def _init_db():

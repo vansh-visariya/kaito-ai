@@ -69,6 +69,23 @@ uv run uvicorn api:app --reload --port 8000
 ```
 Open `http://localhost:8000` in your browser.
 
+## ☁️ Deployment (Render)
+
+Kaito-AI is optimized for Docker deployment on [Render](https://render.com) using **Persistent Disks**. Because this app saves vector databases and user uploads locally, a persistent disk is strictly required.
+
+1. Create a new **Web Service** on Render and connect your GitHub repository.
+2. Select **Docker** as the Runtime environment.
+3. In the **Environment Variables** section, add your API keys:
+   - `GROQ_API_KEY`
+   - `TAVILY_API_KEY`
+   - `LANGCHAIN_API_KEY`
+   - `DATA_DIR` = `/data`
+4. Under the **Disks** section, click "Add Disk":
+   - **Name:** `kaito_data`
+   - **Mount Path:** `/data`
+   - **Size:** `1 GB` (or more, depending on PDF upload volume)
+5. Deploy! Render will build the `Dockerfile` and securely mount the persistent disk.
+
 ## 🧪 Testing
 
 Kaito-AI comes with a full `pytest` suite for validating authentication, API routes, and agent vector isolation.

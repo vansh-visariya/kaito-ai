@@ -37,6 +37,8 @@ from agent.agent import create_agent
 from config import (
     DEFAULT_MODEL,
     VECTOR_STORE_DIR,
+    SESSIONS_FILE_PATH,
+    UPLOADS_DIR_PATH,
     configure_environment,
 )
 from database.memory import get_memory
@@ -82,7 +84,8 @@ class Session:
 
 SESSIONS: dict[int, Session] = {}  # keyed by user_id
 
-SESSIONS_FILE = Path("database/sessions.json")
+SESSIONS_FILE = Path(SESSIONS_FILE_PATH)
+SESSIONS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
 
 def save_sessions():
@@ -633,7 +636,7 @@ async def chat_history(thread_id: str, session: Session = Depends(get_session)):
 # ══════════════════════════════════════════════════════════════════════════
 # ROUTES — DOCUMENTS (RAG)
 # ══════════════════════════════════════════════════════════════════════════
-UPLOADS_DIR = Path("uploads")
+UPLOADS_DIR = Path(UPLOADS_DIR_PATH)
 
 
 @app.post("/api/documents/upload")
