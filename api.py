@@ -40,7 +40,7 @@ from config import (
     configure_environment,
 )
 from database.memory import get_memory
-from database.users import create_session, login, logout, register, validate_session
+from database.users import check_rate_limit, create_session, increment_tokens, login, logout, register, validate_session
 from utility import generate_unique_id
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -78,7 +78,6 @@ class Session:
         self.uploaded_docs: list[str] = []
         self.thread_list: list[str] = []
         self.current_thread_id: str = ""
-        self.vector_store_dir: str = f"{VECTOR_STORE_DIR}_{user_id}"
 
 
 SESSIONS: dict[int, Session] = {}  # keyed by user_id
@@ -95,7 +94,6 @@ def save_sessions():
             "thread_list": s.thread_list,
             "current_thread_id": s.current_thread_id,
             "uploaded_docs": s.uploaded_docs,
-            "vector_store_dir": s.vector_store_dir,
             "model_name": s.model_name,
         }
     SESSIONS_FILE.parent.mkdir(exist_ok=True)
@@ -117,7 +115,6 @@ def load_sessions():
             s.thread_list = sdata.get("thread_list", [])
             s.current_thread_id = sdata.get("current_thread_id", "")
             s.uploaded_docs = sdata.get("uploaded_docs", [])
-            s.vector_store_dir = sdata.get("vector_store_dir", f"{VECTOR_STORE_DIR}_{uid}")
             s.model_name = sdata.get("model_name", DEFAULT_MODEL)
             SESSIONS[uid] = s
         logger.info("Loaded %d sessions from disk.", len(SESSIONS))
@@ -176,6 +173,11 @@ class ThreadDeleteRequest(BaseModel):
     thread_id: str
 
 
+class ThreadBranchRequest(BaseModel):
+    thread_id: str
+    edit_index: int
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # HELPERS
 # ══════════════════════════════════════════════════════════════════════════
@@ -196,11 +198,11 @@ async def _get_or_build_graph(session: Session):
     if file_paths:
         session.graph = await create_agent(
             session.model_name,
+            session.user_id,
             file_paths,
-            session.vector_store_dir,
         )
     else:
-        session.graph = await create_agent(session.model_name)
+        session.graph = await create_agent(session.model_name, session.user_id)
 
     return session.graph
 
@@ -231,11 +233,28 @@ async def _load_conversation(thread_id: str) -> list[dict]:
         return []
 
     result = []
+    pending_sources = []
+    from langchain_core.messages import ToolMessage
+    from agent.agent import _extract_sources
+
     for msg in messages:
         if isinstance(msg, HumanMessage):
-            result.append({"role": "user", "content": msg.content})
+            result.append({"role": "user", "content": msg.content, "id": getattr(msg, "id", None)})
+            pending_sources = []
+        elif isinstance(msg, ToolMessage):
+            # Extract sources and keep them for the next AI message
+            extracted = _extract_sources([msg])
+            for s in extracted:
+                if s not in pending_sources:
+                    pending_sources.append(s)
         elif isinstance(msg, AIMessage):
-            result.append({"role": "assistant", "content": msg.content})
+            result.append({
+                "role": "assistant", 
+                "content": msg.content, 
+                "id": getattr(msg, "id", None),
+                "sources": pending_sources
+            })
+            pending_sources = []
     return result
 
 
@@ -434,10 +453,57 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
             await _delete_thread_from_db(tid)
             session.thread_list.remove(tid)
             deleted.append(tid)
-    if deleted:
-        save_sessions()
-    return {"deleted": deleted, "count": len(deleted)}
+    save_sessions()
+    return {"deleted": deleted}
 
+
+@app.post("/api/threads/branch")
+async def branch_thread(req: ThreadBranchRequest, session: Session = Depends(get_session)):
+    """Branch a thread at a specific edit point to allow regeneration."""
+    try:
+        check_rate_limit(session.user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
+    old_thread_id = req.thread_id
+    if old_thread_id not in session.thread_list:
+        raise HTTPException(status_code=404, detail="Thread not found.")
+
+    # Read old state
+    messages = await _read_thread_state(old_thread_id)
+    
+    # We want to keep all messages up to `edit_index` (exclusive for the user message we are replacing)
+    # The frontend edit_index corresponds to the index of the message in the UI array.
+    # Actually, if the frontend just passes `edit_index` as the literal index in the UI's message array,
+    # it corresponds directly to the AI/Human messages in our `_load_conversation` output.
+    # Let's count them:
+    kept_messages = []
+    ui_index = 0
+    from langchain_core.messages import ToolMessage
+    for msg in messages:
+        if isinstance(msg, (HumanMessage, AIMessage)):
+            if ui_index == req.edit_index:
+                break
+            ui_index += 1
+            kept_messages.append(msg)
+        elif isinstance(msg, ToolMessage):
+            # Keep tool messages if they belong to the last AIMessage we kept.
+            # If we haven't hit edit_index yet, we keep everything.
+            kept_messages.append(msg)
+
+    # Create new thread
+    new_thread_id = _create_thread_id()
+    session.thread_list.append(new_thread_id)
+    session.current_thread_id = new_thread_id
+    save_sessions()
+
+    # Write truncated history to the new thread
+    if kept_messages:
+        graph = await _get_or_build_graph(session)
+        config = {"configurable": {"thread_id": new_thread_id}}
+        await graph.aupdate_state(config, {"messages": kept_messages})
+
+    return {"thread_id": new_thread_id}
 
 # ══════════════════════════════════════════════════════════════════════════
 # ROUTES — CHAT
@@ -445,6 +511,11 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
 @app.post("/api/chat")
 async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     """Blocking chat — returns full response in one JSON object."""
+    try:
+        check_rate_limit(session.user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
     thread_id = req.thread_id or session.current_thread_id
 
     if thread_id not in session.thread_list:
@@ -457,6 +528,14 @@ async def chat(req: ChatRequest, session: Session = Depends(get_session)):
         result = await graph.ainvoke({"question": req.message}, config=config)
         response = result.get("generation", "Sorry, I couldn't generate a response.")
         sources  = result.get("sources", [])
+        
+        # Count tokens
+        for msg in reversed(result.get("messages", [])):
+            if isinstance(msg, AIMessage) and hasattr(msg, "response_metadata"):
+                tokens = msg.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+                if tokens:
+                    increment_tokens(session.user_id, tokens)
+                break
     except Exception as exc:
         logger.exception("Chat invoke failed: %s", exc)
         raise HTTPException(status_code=500, detail=f"Inference error: {exc}")
@@ -472,6 +551,11 @@ async def chat(req: ChatRequest, session: Session = Depends(get_session)):
 @app.post("/api/chat/stream")
 async def chat_stream(req: ChatRequest, session: Session = Depends(get_session)):
     """SSE streaming chat — sends tokens as they are generated."""
+    try:
+        check_rate_limit(session.user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=429, detail=str(e))
+
     thread_id = req.thread_id or session.current_thread_id
 
     if thread_id not in session.thread_list:
@@ -497,6 +581,14 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
                         token = chunk.content if isinstance(chunk.content, str) else ""
                         if token:
                             yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+
+                # —— Track token usage ——————————————————————————————
+                elif kind == "on_chat_model_end":
+                    msg = event["data"]["output"]
+                    if hasattr(msg, "response_metadata"):
+                        tokens = msg.response_metadata.get("token_usage", {}).get("total_tokens", 0)
+                        if tokens:
+                            increment_tokens(session.user_id, tokens)
 
                 # —— Capture document citations from retriever tool ———————
                 elif kind == "on_tool_end":
@@ -566,15 +658,15 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
 
         # Add to vector store individually
         from agent.agent import add_document_to_vector_store
-        add_document_to_vector_store(str(file_path.absolute()), session.vector_store_dir)
+        add_document_to_vector_store(str(file_path.absolute()), session.user_id)
 
     all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
 
     # Rebuild the unified agent with document retriever
     session.graph = await create_agent(
         session.model_name,
+        session.user_id,
         all_paths,
-        session.vector_store_dir,
     )
 
     for name in saved_files:
@@ -599,7 +691,7 @@ async def delete_document(filename: str, session: Session = Depends(get_session)
     if file_path.exists():
         # 1. Delete from vector store
         from agent.agent import delete_document_from_vector_store
-        delete_document_from_vector_store(str(file_path.absolute()), session.vector_store_dir)
+        delete_document_from_vector_store(str(file_path.absolute()), session.user_id)
 
         # 2. Delete file
         file_path.unlink(missing_ok=True)
@@ -612,15 +704,14 @@ async def delete_document(filename: str, session: Session = Depends(get_session)
 
     if not all_paths:
         # No documents left -> rebuild agent without retriever
-        session.graph = await create_agent(session.model_name)
+        session.graph = await create_agent(session.model_name, session.user_id)
         save_sessions()
         return {"deleted": filename, "has_documents": False}
     else:
-        # Rebuild agent with updated retriever
         session.graph = await create_agent(
             session.model_name,
+            session.user_id,
             all_paths,
-            session.vector_store_dir,
         )
         return {"deleted": filename, "has_documents": True}
 

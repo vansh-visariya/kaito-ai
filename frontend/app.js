@@ -52,6 +52,7 @@ const messagesEl = document.getElementById('messages');
 const welcomeEl = document.getElementById('welcome');
 const chatInput = document.getElementById('chat-input');
 const sendBtn = document.getElementById('send-btn');
+const stopBtn = document.getElementById('stop-btn');
 const pdfUpload = document.getElementById('pdf-upload');
 const uploadIndicator = document.getElementById('upload-indicator');
 const uploadFilename = document.getElementById('upload-filename');
@@ -67,6 +68,8 @@ let pendingFiles = [];
 let isStreaming = false;
 let currentUsername = '';
 let currentEmail = '';
+let currentAbortController = null;
+let messageCount = 0;
 
 // ── Generic API helper (JSON only) ────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -169,6 +172,7 @@ function appendMessage(role, content, sources = []) {
 
   const wrapper = document.createElement('div');
   wrapper.className = `msg-wrapper ${role}`;
+  wrapper.dataset.index = messageCount++;
 
   if (role === 'assistant') {
     const av = document.createElement('div');
@@ -183,6 +187,78 @@ function appendMessage(role, content, sources = []) {
   addCopyButtons(bubble);
   renderSources(sources, bubble);
   wrapper.appendChild(bubble);
+
+  if (role === 'user') {
+    const editBtn = document.createElement('button');
+    editBtn.className = 'btn-edit';
+    editBtn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>`;
+    editBtn.title = 'Edit Message';
+    
+    editBtn.addEventListener('click', () => {
+      const currentText = content;
+      bubble.innerHTML = '';
+      
+      const editWrapper = document.createElement('div');
+      editWrapper.className = 'edit-wrapper';
+      
+      const textarea = document.createElement('textarea');
+      textarea.value = currentText;
+      
+      const actions = document.createElement('div');
+      actions.className = 'edit-actions';
+      
+      const cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn-edit-cancel';
+      cancelBtn.textContent = 'Cancel';
+      
+      const saveBtn = document.createElement('button');
+      saveBtn.className = 'btn-edit-save';
+      saveBtn.textContent = 'Save & Regenerate';
+      
+      cancelBtn.addEventListener('click', () => {
+        bubble.innerHTML = renderMarkdown(currentText);
+        addCopyButtons(bubble);
+        bubble.appendChild(editBtn);
+      });
+      
+      saveBtn.addEventListener('click', async () => {
+        const newText = textarea.value.trim();
+        if (!newText) return;
+        
+        try {
+          const data = await api('/api/threads/branch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ thread_id: currentThreadId, edit_index: parseInt(wrapper.dataset.index) })
+          });
+          
+          currentThreadId = data.thread_id;
+          chatInput.value = newText;
+          autoResize();
+          await loadThreads();
+          
+          const hist = await api(`/api/chat/${currentThreadId}/history`);
+          renderHistory(hist.messages);
+          
+          handleSend();
+        } catch(e) {
+          showToast(e.message, 'error');
+        }
+      });
+      
+      actions.appendChild(cancelBtn);
+      actions.appendChild(saveBtn);
+      editWrapper.appendChild(textarea);
+      editWrapper.appendChild(actions);
+      bubble.appendChild(editWrapper);
+      
+      textarea.style.height = 'auto';
+      textarea.style.height = Math.min(textarea.scrollHeight, 180) + 'px';
+      textarea.focus();
+    });
+    
+    bubble.appendChild(editBtn);
+  }
 
   messagesEl.appendChild(wrapper);
   messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -218,13 +294,14 @@ function clearMessages() {
   messagesEl.innerHTML = '';
   messagesEl.appendChild(welcomeEl);
   welcomeEl.classList.remove('hidden');
+  messageCount = 0;
 }
 
 function renderHistory(messages) {
   clearMessages();
   if (!messages || !messages.length) return;
-  // History messages don't carry sources (they're from the DB not the live stream)
-  messages.forEach(m => appendMessage(m.role, m.content));
+  // History messages might carry sources
+  messages.forEach(m => appendMessage(m.role, m.content, m.sources));
 }
 
 // ── Thread list ───────────────────────────────────────────────────────────
@@ -462,6 +539,12 @@ chatInput.addEventListener('keydown', e => {
 
 sendBtn.addEventListener('click', handleSend);
 
+stopBtn.addEventListener('click', () => {
+  if (currentAbortController) {
+    currentAbortController.abort();
+  }
+});
+
 document.querySelectorAll('.chip').forEach(chip => {
   chip.addEventListener('click', () => {
     chatInput.value = chip.dataset.prompt;
@@ -478,9 +561,13 @@ async function handleSend() {
   if (!text && !pendingFiles.length) return;
 
   isStreaming = true;
-  sendBtn.disabled = true;
+  sendBtn.classList.add('hidden');
+  stopBtn.classList.remove('hidden');
+  stopBtn.disabled = false;
   chatInput.value = '';
   autoResize();
+
+  currentAbortController = new AbortController();
 
   try {
     // Upload files first if any are pending
@@ -491,7 +578,7 @@ async function handleSend() {
       pdfUpload.value = '';
     }
 
-    if (!text) { isStreaming = false; sendBtn.disabled = false; return; }
+    if (!text) { isStreaming = false; sendBtn.classList.remove('hidden'); stopBtn.classList.add('hidden'); return; }
 
     // User bubble
     appendMessage('user', text);
@@ -500,6 +587,7 @@ async function handleSend() {
     welcomeEl.classList.add('hidden');
     const wrapper = document.createElement('div');
     wrapper.className = 'msg-wrapper assistant';
+    wrapper.dataset.index = messageCount++;
 
     const av = document.createElement('div');
     av.className = 'avatar ai';
@@ -513,11 +601,12 @@ async function handleSend() {
     messagesEl.appendChild(wrapper);
     messagesEl.scrollTop = messagesEl.scrollHeight;
 
-    // Open SSE stream via fetch (POST, not EventSource which only does GET)
+    // Open SSE stream via fetch
     const response = await fetch(API + '/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message: text, thread_id: currentThreadId }),
+      signal: currentAbortController.signal,
     });
 
     if (!response.ok) {
@@ -548,7 +637,7 @@ async function handleSend() {
 
         if (evt.type === 'token') {
           fullText += evt.token;
-          // Re-render markdown on each token — fast enough with marked
+          // Re-render markdown on each token
           bubble.innerHTML = renderMarkdown(fullText);
           messagesEl.scrollTop = messagesEl.scrollHeight;
 
@@ -570,9 +659,22 @@ async function handleSend() {
 
   } catch (err) {
     removeTypingIndicator();
-    appendMessage('assistant', `⚠️ Error: ${err.message}`);
+    if (err.name === 'AbortError') {
+      const bubble = messagesEl.lastElementChild.querySelector('.bubble.assistant');
+      if (bubble) {
+        bubble.classList.remove('streaming-cursor');
+        bubble.innerHTML += `<br/><br/><span style="color:#f87171">⚠️ Generation stopped by user.</span>`;
+      } else {
+        appendMessage('assistant', `⚠️ Generation stopped by user.`);
+      }
+    } else {
+      appendMessage('assistant', `⚠️ Error: ${err.message}`);
+    }
   } finally {
     isStreaming = false;
+    currentAbortController = null;
+    sendBtn.classList.remove('hidden');
+    stopBtn.classList.add('hidden');
     sendBtn.disabled = !chatInput.value.trim();
   }
 }

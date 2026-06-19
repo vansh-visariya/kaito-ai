@@ -117,8 +117,8 @@ class _HybridRetriever(BaseRetriever):
 
 
 # ── PDF loading ───────────────────────────────────────────────────────────
-def _load_and_split(file_paths: list[str]) -> list[Document]:
-    """Load PDFs and split into chunks."""
+def _load_and_split(file_paths: list[str], user_id: int) -> list[Document]:
+    """Load PDFs, split into chunks, and attach user_id metadata."""
     all_docs: list[Document] = []
     for path in file_paths:
         logger.info("Loading PDF: %s", path)
@@ -133,55 +133,63 @@ def _load_and_split(file_paths: list[str]) -> list[Document]:
         chunk_size=DEFAULT_CHUNK_SIZE,
         chunk_overlap=DEFAULT_CHUNK_OVERLAP,
     ).split_documents(all_docs)
+    
+    # Attach user_id to every chunk
+    for chunk in splits:
+        chunk.metadata["user_id"] = user_id
+
     logger.info("Created %d text chunks from %d PDF(s).", len(splits), len(file_paths))
     return splits
 
 
 # ── Vector store management ───────────────────────────────────────────────
-def delete_document_from_vector_store(file_path: str, vector_store_dir: str):
-    """Delete all chunks associated with a specific file from Chroma."""
+def delete_document_from_vector_store(file_path: str, user_id: int):
+    """Delete all chunks associated with a specific file and user from Chroma."""
+    from config import VECTOR_STORE_DIR
     vector_store = Chroma(
-        persist_directory=vector_store_dir,
+        persist_directory=VECTOR_STORE_DIR,
         embedding_function=HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL),
     )
     try:
-        vector_store._collection.delete(where={"source": file_path})
-        logger.info("Deleted %s from vector store %s", file_path, vector_store_dir)
+        vector_store._collection.delete(where={"$and": [{"source": file_path}, {"user_id": user_id}]})
+        logger.info("Deleted %s from vector store (user_id=%d)", file_path, user_id)
     except Exception as exc:
         logger.warning("Failed to delete %s from vector store: %s", file_path, exc)
 
 
-def add_document_to_vector_store(file_path: str, vector_store_dir: str):
+def add_document_to_vector_store(file_path: str, user_id: int):
     """Add a single document to the Chroma vector store."""
-    splits = _load_and_split([file_path])
+    from config import VECTOR_STORE_DIR
+    splits = _load_and_split([file_path], user_id)
     vector_store = Chroma(
-        persist_directory=vector_store_dir,
+        persist_directory=VECTOR_STORE_DIR,
         embedding_function=HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL),
     )
     vector_store.add_documents(splits)
-    logger.info("Added %s to vector store %s", file_path, vector_store_dir)
+    logger.info("Added %s to vector store (user_id=%d)", file_path, user_id)
 
 
-def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _HybridRetriever:
+def build_hybrid_retriever(file_paths: list[str], user_id: int) -> _HybridRetriever:
     """Build and return a hybrid BM25 + ChromaDB retriever.
 
     Args:
         file_paths: Absolute paths to PDF files on disk.
-        vector_store_dir: Directory to persist the Chroma database.
+        user_id: User ID for filtering the Chroma database.
 
     Returns:
         A :class:`_HybridRetriever` combining keyword and semantic search.
     """
-    splits = _load_and_split(file_paths)
+    from config import VECTOR_STORE_DIR
+    splits = _load_and_split(file_paths, user_id)
 
     embedder = HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL)
     vector_store = Chroma(
-        persist_directory=vector_store_dir,
+        persist_directory=VECTOR_STORE_DIR,
         embedding_function=embedder,
     )
 
     bm25   = BM25Retriever.from_documents(splits, k=DEFAULT_RETRIEVER_K)
-    vector = vector_store.as_retriever(search_kwargs={"k": DEFAULT_RETRIEVER_K})
+    vector = vector_store.as_retriever(search_kwargs={"k": DEFAULT_RETRIEVER_K, "filter": {"user_id": user_id}})
 
     logger.info("Hybrid retriever ready (BM25 weight=%.1f, vector weight=%.1f).",
                 BM25_WEIGHT, 1.0 - BM25_WEIGHT)
@@ -335,8 +343,8 @@ Keep answers concise, well-structured, and use markdown formatting when helpful.
 # ── Public factory ────────────────────────────────────────────────────────
 async def create_agent(
     model_name: str,
+    user_id: int,
     file_paths: list[str] | None = None,
-    vector_store_dir: str | None = None,
 ) -> _AgentWrapper:
     """Build a unified ReAct agent.
 
@@ -355,8 +363,8 @@ async def create_agent(
 
     # Add document retriever if files are available
     has_docs = file_paths and len(file_paths) > 0
-    if has_docs and vector_store_dir:
-        retriever = build_hybrid_retriever(file_paths, vector_store_dir)
+    if has_docs:
+        retriever = build_hybrid_retriever(file_paths, user_id)
         retriever_tool = create_retriever_tool(
             retriever,
             name="document_retriever",

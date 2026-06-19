@@ -647,3 +647,57 @@ textarea#chat-input::placeholder { color: var(--text-muted); }
 .bubble th { background: var(--bg-hover); font-weight: 600; }
 .bubble blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-secondary); margin: 8px 0; }
 .bubble hr { border: none; border-top: 1px solid var(--border); margin: 12px 0; }
+
+/* ============================================================
+   STOP GENERATION & EDIT UI
+   ============================================================ */
+#stop-btn {
+  background: linear-gradient(135deg, #ef4444, #b91c1c);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(239, 68, 68, 0.2);
+}
+#stop-btn:not(:disabled):hover {
+  box-shadow: 0 4px 20px rgba(239, 68, 68, 0.4);
+}
+#stop-btn svg { color: #fff; }
+
+.bubble { position: relative; }
+
+.btn-edit {
+  position: absolute; top: 4px; right: 4px;
+  background: var(--bg-hover); border: 1px solid var(--border);
+  color: var(--text-secondary); border-radius: 6px;
+  font-size: 11px; padding: 4px; cursor: pointer; opacity: 0;
+  transition: opacity var(--transition), background var(--transition), color var(--transition);
+  display: flex; align-items: center; justify-content: center;
+}
+.bubble:hover .btn-edit { opacity: 1; }
+.btn-edit:hover { background: var(--bg-card); color: var(--text-primary); border-color: var(--border-act); }
+.btn-edit svg { width: 14px; height: 14px; }
+
+.edit-wrapper {
+  display: flex; flex-direction: column; gap: 8px;
+  width: 100%; min-width: 300px;
+}
+.edit-wrapper textarea {
+  width: 100%; background: var(--bg-surface); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); outline: none; resize: vertical;
+  font-family: 'Inter', sans-serif; font-size: 14.5px; color: var(--text-primary);
+  padding: 8px 12px; min-height: 80px;
+}
+.edit-wrapper textarea:focus { border-color: var(--accent); }
+.edit-actions {
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.edit-actions button {
+  padding: 6px 12px; border-radius: 6px; font-size: 12.5px;
+  cursor: pointer; transition: all var(--transition); font-weight: 500;
+}
+.btn-edit-cancel {
+  background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
+}
+.btn-edit-cancel:hover { background: var(--bg-hover); color: var(--text-primary); }
+.btn-edit-save {
+  background: var(--accent); color: #000; border: none;
+}
+.btn-edit-save:hover { background: var(--accent-2); }

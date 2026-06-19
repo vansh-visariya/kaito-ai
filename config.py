@@ -26,10 +26,12 @@ DEFAULT_CHUNK_OVERLAP: int = 200
 DEFAULT_EMBEDDING_MODEL: str = "sentence-transformers/all-mpnet-base-v2"
 DEFAULT_RETRIEVER_K: int = 3
 
+DAILY_TOKEN_LIMIT: int = 50000
+
 VECTOR_STORE_DIR: str = "./chroma_langchain_db"
 CHATBOT_DB_PATH: str = "database/chatbot.db"
 
-LANGSMITH_PROJECT: str = "kaito-ai"
+LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT")
 
 # Server-level API keys (set via .env, NOT user-configurable)
 SERVER_GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")

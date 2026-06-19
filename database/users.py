@@ -18,9 +18,17 @@ def _init_db():
             password_hash BLOB NOT NULL,
             salt BLOB NOT NULL,
             username TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            tokens_used_today INTEGER DEFAULT 0,
+            last_token_reset_date TEXT DEFAULT ''
         )
     """)
+    # Migration for existing DB
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN tokens_used_today INTEGER DEFAULT 0")
+        conn.execute("ALTER TABLE users ADD COLUMN last_token_reset_date TEXT DEFAULT ''")
+    except sqlite3.OperationalError:
+        pass
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,5 +152,58 @@ def logout(token: str):
     """Delete a session token."""
     conn = sqlite3.connect(str(DB_PATH))
     conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+    conn.commit()
+    conn.close()
+
+
+def check_rate_limit(user_id: int, limit: int = 50000):
+    """Check if user has exceeded their daily token limit."""
+    import datetime
+    conn = sqlite3.connect(str(DB_PATH))
+    row = conn.execute(
+        "SELECT tokens_used_today, last_token_reset_date FROM users WHERE id = ?",
+        (user_id,)
+    ).fetchone()
+    
+    if not row:
+        conn.close()
+        return
+
+    tokens_used, last_reset = row
+    today = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+    
+    if last_reset != today:
+        conn.execute(
+            "UPDATE users SET tokens_used_today = 0, last_token_reset_date = ? WHERE id = ?",
+            (today, user_id)
+        )
+        conn.commit()
+        tokens_used = 0
+        
+    conn.close()
+    
+    if tokens_used >= limit:
+        raise ValueError(f"Daily token limit ({limit}) exceeded. Please try again tomorrow.")
+
+
+def increment_tokens(user_id: int, tokens: int):
+    """Add tokens to the user's daily usage."""
+    import datetime
+    conn = sqlite3.connect(str(DB_PATH))
+    today = datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d')
+    
+    # Auto-reset if needed
+    row = conn.execute("SELECT last_token_reset_date FROM users WHERE id = ?", (user_id,)).fetchone()
+    if row and row[0] != today:
+        conn.execute(
+            "UPDATE users SET tokens_used_today = ?, last_token_reset_date = ? WHERE id = ?",
+            (tokens, today, user_id)
+        )
+    else:
+        conn.execute(
+            "UPDATE users SET tokens_used_today = tokens_used_today + ? WHERE id = ?",
+            (tokens, user_id)
+        )
+        
     conn.commit()
     conn.close()

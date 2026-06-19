@@ -27,6 +27,9 @@ dependencies = [
     "pysqlite3-binary ; sys_platform == 'linux'",
     "rank-bm25>=0.2.2",
     "aiosqlite>=0.22.1",
+    "pytest>=9.1.1",
+    "pytest-asyncio>=1.4.0",
+    "httpx>=0.28.1",
 ]
 
 [project.optional-dependencies]
