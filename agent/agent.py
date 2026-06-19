@@ -1,9 +1,13 @@
 """Unified agent module for Kaito-AI.
 
-Agents
-------
-create_search_agent — web search only.       Tools: [tavily_search]
-create_rag_agent    — docs + web fallback.   Tools: [document_retriever, tavily_search]
+Provides a single ``create_agent()`` factory that builds a ReAct agent with:
+  • document_retriever tool  (when PDFs are uploaded)
+  • tavily web-search tool   (always available, but used as last resort)
+
+Response priority enforced via system prompt:
+  1. Uploaded documents (RAG)
+  2. Model's own knowledge
+  3. Web search (last resort)
 """
 
 import logging
@@ -29,31 +33,24 @@ from config import (
     DEFAULT_CHUNK_SIZE,
     DEFAULT_EMBEDDING_MODEL,
     DEFAULT_RETRIEVER_K,
-    VECTOR_STORE_DIR,
     configure_environment,
 )
-from database.memory import get_rag_memory, get_search_memory
+from database.memory import get_memory
 
 logger = logging.getLogger(__name__)
 
-# Constants
-SUMMARISE_AFTER = 20   # number of Human+AI messages before summarisation kicks in
-BM25_WEIGHT     = 0.4  # weight given to BM25 results vs vector results (0.6)
+# ── Constants ──────────────────────────────────────────────────────────────
+BM25_WEIGHT = 0.4  # weight given to BM25 results vs vector results (0.6)
+SUMMARISE_AFTER = 40  # summarise when conversation exceeds this many Human/AI messages
 
 
-# Shared: web search tool
+# ── Shared: web search tool ───────────────────────────────────────────────
 def make_web_search_tool() -> TavilySearch:
     """Return a configured Tavily web-search tool (4 results)."""
     return TavilySearch(max_results=4)
 
 
-# RAG-only: embeddings & reranker
-@lru_cache(maxsize=1)
-def _load_embeddings() -> HuggingFaceEmbeddings:
-    logger.info("Loading embedding model: %s", DEFAULT_EMBEDDING_MODEL)
-    return HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL)
-
-
+# ── RAG: reranker ─────────────────────────────────────────────────────────
 @lru_cache(maxsize=1)
 def _load_reranker():
     logger.info("Loading cross-encoder reranker...")
@@ -61,13 +58,11 @@ def _load_reranker():
     return CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
 
 
-# RAG-only: hybrid BM25 + vector retriever (#6)
+# ── RAG: hybrid BM25 + vector retriever ───────────────────────────────────
 class _HybridRetriever(BaseRetriever):
     """Weighted ensemble of BM25 (keyword) + ChromaDB (semantic) retrievers.
 
-    Since ``EnsembleRetriever`` is not available in the installed version of
-    langchain, this class implements the same reciprocal-rank fusion logic
-    manually.
+    Implements reciprocal-rank fusion followed by cross-encoder reranking.
 
     Attributes:
         bm25_retriever:    BM25Retriever built from document splits.
@@ -121,6 +116,7 @@ class _HybridRetriever(BaseRetriever):
         return self._get_relevant_documents(query)
 
 
+# ── PDF loading ───────────────────────────────────────────────────────────
 def _load_and_split(file_paths: list[str]) -> list[Document]:
     """Load PDFs and split into chunks."""
     all_docs: list[Document] = []
@@ -141,25 +137,26 @@ def _load_and_split(file_paths: list[str]) -> list[Document]:
     return splits
 
 
+# ── Vector store management ───────────────────────────────────────────────
 def delete_document_from_vector_store(file_path: str, vector_store_dir: str):
     """Delete all chunks associated with a specific file from Chroma."""
     vector_store = Chroma(
         persist_directory=vector_store_dir,
-        embedding_function=_load_embeddings(),
+        embedding_function=HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL),
     )
-    # Use underlying chromadb collection to delete by metadata
     try:
         vector_store._collection.delete(where={"source": file_path})
         logger.info("Deleted %s from vector store %s", file_path, vector_store_dir)
     except Exception as exc:
         logger.warning("Failed to delete %s from vector store: %s", file_path, exc)
 
+
 def add_document_to_vector_store(file_path: str, vector_store_dir: str):
     """Add a single document to the Chroma vector store."""
     splits = _load_and_split([file_path])
     vector_store = Chroma(
         persist_directory=vector_store_dir,
-        embedding_function=_load_embeddings(),
+        embedding_function=HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL),
     )
     vector_store.add_documents(splits)
     logger.info("Added %s to vector store %s", file_path, vector_store_dir)
@@ -177,9 +174,10 @@ def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _Hyb
     """
     splits = _load_and_split(file_paths)
 
+    embedder = HuggingFaceEmbeddings(model_name=DEFAULT_EMBEDDING_MODEL)
     vector_store = Chroma(
         persist_directory=vector_store_dir,
-        embedding_function=_load_embeddings(),
+        embedding_function=embedder,
     )
 
     bm25   = BM25Retriever.from_documents(splits, k=DEFAULT_RETRIEVER_K)
@@ -196,7 +194,7 @@ def build_hybrid_retriever(file_paths: list[str], vector_store_dir: str) -> _Hyb
     )
 
 
-# Source extraction helper
+# ── Source extraction helper ──────────────────────────────────────────────
 def _extract_sources(messages: list) -> list[dict]:
     """Pull document citations out of ToolMessage artifacts."""
     sources: list[dict] = []
@@ -219,7 +217,7 @@ def _extract_sources(messages: list) -> list[dict]:
     return sources
 
 
-# Conversation summarisation helper (#5)
+# ── Conversation summarisation ────────────────────────────────────────────
 async def _maybe_summarise(agent, llm, config: dict | None) -> None:
     """Summarise old messages when a thread grows beyond SUMMARISE_AFTER turns."""
     if not config:
@@ -267,7 +265,7 @@ async def _maybe_summarise(agent, llm, config: dict | None) -> None:
         logger.warning("update_state failed: %s", exc)
 
 
-# Shared: agent wrapper
+# ── Agent wrapper ─────────────────────────────────────────────────────────
 class _AgentWrapper:
     """Adapts the ReAct agent to the question/generation interface.
 
@@ -283,7 +281,7 @@ class _AgentWrapper:
         return await self._agent.aget_state(config)
 
     async def ainvoke(self, inputs: dict, config: dict | None = None) -> dict:
-        await _maybe_summarise(self._agent, self._llm, config)      # #5
+        await _maybe_summarise(self._agent, self._llm, config)
 
         question = inputs.get("question", "")
         result   = await self._agent.ainvoke(
@@ -300,7 +298,7 @@ class _AgentWrapper:
 
     async def astream_events(self, inputs: dict, config: dict | None = None):
         """Async generator of raw LangGraph events for SSE streaming."""
-        await _maybe_summarise(self._agent, self._llm, config)      # #5
+        await _maybe_summarise(self._agent, self._llm, config)
 
         question = inputs.get("question", "")
         async for event in self._agent.astream_events(
@@ -314,74 +312,75 @@ class _AgentWrapper:
         return self._agent.get_state(config)
 
 
-# System prompts
-_SEARCH_SYSTEM = SystemMessage(content="""\
-You are a knowledgeable AI assistant.
-Answer the user's questions accurately. Use the provided web search tool if you need current events or if you are unsure.
-Keep answers concise and well-structured.
+# ── System prompt ─────────────────────────────────────────────────────────
+_UNIFIED_SYSTEM = SystemMessage(content="""\
+You are Kaito, a knowledgeable AI assistant.
+
+RESPONSE PRIORITY — strictly follow this order:
+1. DOCUMENTS FIRST: If a document_retriever tool is available, ALWAYS search
+   the user's uploaded documents first. If the documents contain the answer,
+   use that information and cite the source.
+2. YOUR OWN KNOWLEDGE: If the documents don't contain the answer (or no
+   documents are available), use your own training knowledge to answer.
+3. WEB SEARCH (LAST RESORT): Only use the web_search tool if:
+   - You genuinely don't know the answer from your training data, OR
+   - The question requires current/real-time information (news, stock prices,
+     weather, recent events), OR
+   - The user explicitly asks to search the web.
+
+Keep answers concise, well-structured, and use markdown formatting when helpful.
 """)
 
-_RAG_SYSTEM = SystemMessage(content="""\
-You are an AI assistant.
-You have access to a document retriever and a web search tool.
-ALWAYS search the documents first for any user query.
-Base your answer primarily on retrieved passages and quote specific details when possible.
-Only use web search if the documents don't contain the needed info.
-""")
 
-
-# Public factories
-async def create_search_agent(
-    groq_api_key: str,
-    model_name:   str,
-    tavily_api_key: str,
+# ── Public factory ────────────────────────────────────────────────────────
+async def create_agent(
+    model_name: str,
+    file_paths: list[str] | None = None,
+    vector_store_dir: str | None = None,
 ) -> _AgentWrapper:
-    """Build a ReAct search agent (web-search only)."""
-    configure_environment(groq_api_key, tavily_api_key)
+    """Build a unified ReAct agent.
+
+    If ``file_paths`` is non-empty, the agent gets a document_retriever tool
+    in addition to web search. Otherwise, it only has web search.
+
+    API keys are read from server environment (configured via .env).
+    LangSmith tracing is enabled automatically via environment variables.
+    """
+    configure_environment()
 
     llm    = ChatGroq(model=model_name, streaming=True)
-    memory = await get_search_memory()
-    tools  = [make_web_search_tool()]
+    memory = await get_memory()
+
+    tools = []
+
+    # Add document retriever if files are available
+    has_docs = file_paths and len(file_paths) > 0
+    if has_docs and vector_store_dir:
+        retriever = build_hybrid_retriever(file_paths, vector_store_dir)
+        retriever_tool = create_retriever_tool(
+            retriever,
+            name="document_retriever",
+            description=(
+                "Search and retrieve relevant passages from the user's uploaded PDF "
+                "documents using hybrid keyword + semantic search. Use this tool "
+                "FIRST for any question. Input: a natural-language search query."
+            ),
+            response_format="content_and_artifact",
+        )
+        tools.append(retriever_tool)
+
+    # Web search is always available (but should be used as last resort)
+    tools.append(make_web_search_tool())
 
     agent = create_react_agent(
-        model=llm, tools=tools, checkpointer=memory, prompt=_SEARCH_SYSTEM
-    )
-    logger.info("Search agent compiled (model=%s).", model_name)
-    return _AgentWrapper(agent, llm)
-
-
-async def create_rag_agent(
-    groq_api_key:   str,
-    model_name:     str,
-    file_paths:     list[str],
-    tavily_api_key: str,
-    vector_store_dir: str,
-) -> _AgentWrapper:
-    """Build a ReAct RAG agent with hybrid retrieval + web-search fallback."""
-    configure_environment(groq_api_key, tavily_api_key)
-
-    llm    = ChatGroq(model=model_name, streaming=True)
-    memory = await get_rag_memory()
-
-    # #6 — hybrid BM25 + vector retriever
-    retriever = build_hybrid_retriever(file_paths, vector_store_dir)
-
-    retriever_tool = create_retriever_tool(
-        retriever,
-        name="document_retriever",
-        description=(
-            "Search and retrieve relevant passages from the uploaded PDF documents "
-            "using hybrid keyword + semantic search. Use this tool first for any "
-            "question about the uploaded files. Input: a natural-language search query."
-        ),
-        response_format="content_and_artifact",
+        model=llm, tools=tools, checkpointer=memory, prompt=_UNIFIED_SYSTEM
     )
 
-    tools = [retriever_tool, make_web_search_tool()]
-
-    agent = create_react_agent(
-        model=llm, tools=tools, checkpointer=memory, prompt=_RAG_SYSTEM
+    tool_names = [t.name if hasattr(t, "name") else str(t) for t in tools]
+    logger.info(
+        "Unified agent compiled (model=%s, %d file(s), tools=%s, langsmith=enabled).",
+        model_name,
+        len(file_paths) if file_paths else 0,
+        tool_names,
     )
-    logger.info("RAG agent compiled (model=%s, %d file(s), hybrid retrieval).",
-                model_name, len(file_paths))
     return _AgentWrapper(agent, llm)

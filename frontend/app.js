@@ -1,9 +1,11 @@
 /* ============================================================
    Kaito-AI — app.js
    Features:
-     1. SSE streaming (POST /api/chat/stream) with fetch ReadableStream
-     2. marked.js + highlight.js markdown rendering with copy buttons
-     3. Source citations rendered under RAG answers
+     1. Login / Register authentication
+     2. SSE streaming (POST /api/chat/stream) with fetch ReadableStream
+     3. marked.js + highlight.js markdown rendering with copy buttons
+     4. Source citations rendered under RAG answers
+     5. Multi-thread management per user account
    ============================================================ */
 
 const API = '';   // same-origin; set to 'http://localhost:8000' for dev
@@ -20,10 +22,15 @@ marked.use(markedHighlight({
 marked.use({ gfm: true, breaks: true });
 
 // ── DOM refs ──────────────────────────────────────────────────────────────
-const configOverlay = document.getElementById('config-overlay');
-const configForm = document.getElementById('config-form');
-const configError = document.getElementById('config-error');
-const configSubmit = document.getElementById('config-submit');
+const authOverlay = document.getElementById('auth-overlay');
+const loginForm = document.getElementById('login-form');
+const registerForm = document.getElementById('register-form');
+const loginError = document.getElementById('login-error');
+const registerError = document.getElementById('register-error');
+const loginSubmit = document.getElementById('login-submit');
+const registerSubmit = document.getElementById('register-submit');
+const tabLogin = document.getElementById('tab-login');
+const tabRegister = document.getElementById('tab-register');
 const appEl = document.getElementById('app');
 
 const sidebar = document.getElementById('sidebar');
@@ -34,8 +41,12 @@ const threadListEl = document.getElementById('thread-list');
 const docListEl = document.getElementById('doc-list');
 const clearDocsBtn = document.getElementById('clear-docs-btn');
 const cleanThreadsBtn = document.getElementById('clean-threads-btn');
-const settingsBtn = document.getElementById('settings-btn');
-const modeBadge = document.getElementById('mode-badge');
+const logoutBtn = document.getElementById('logout-btn');
+
+const userProfile = document.getElementById('user-profile');
+const userAvatar = document.getElementById('user-avatar');
+const userDisplayName = document.getElementById('user-display-name');
+const userDisplayEmail = document.getElementById('user-display-email');
 
 const messagesEl = document.getElementById('messages');
 const welcomeEl = document.getElementById('welcome');
@@ -48,12 +59,14 @@ const cancelUpload = document.getElementById('cancel-upload');
 const uploadOverlay = document.getElementById('upload-overlay');
 const toastEl = document.getElementById('toast');
 const topbarLabel = document.getElementById('topbar-thread-label');
-const topbarMode = document.getElementById('topbar-mode');
+const topbarDocsBadge = document.getElementById('topbar-docs-badge');
 
 // ── State ─────────────────────────────────────────────────────────────────
 let currentThreadId = null;
 let pendingFiles = [];
 let isStreaming = false;
+let currentUsername = '';
+let currentEmail = '';
 
 // ── Generic API helper (JSON only) ────────────────────────────────────────
 async function api(path, opts = {}) {
@@ -132,14 +145,22 @@ function renderSources(sources, bubble) {
   bubble.appendChild(bar);
 }
 
-// ── Mode UI ───────────────────────────────────────────────────────────────
-function updateModeUI(mode) {
-  const isRag = mode === 'rag';
-  const cls = isRag ? 'mode-rag' : 'mode-search';
-  modeBadge.className = `mode-badge ${cls}`;
-  modeBadge.innerHTML = `<span class="mode-icon">${isRag ? '📄' : '🔍'}</span><span class="mode-label">${isRag ? 'RAG Mode' : 'Search Mode'}</span>`;
-  topbarMode.className = `topbar-mode ${cls}`;
-  topbarMode.textContent = isRag ? '📄 RAG' : '🔍 Search';
+// ── User profile UI ──────────────────────────────────────────────────────
+function updateUserProfile(username, email) {
+  currentUsername = username;
+  currentEmail = email || '';
+  userDisplayName.textContent = username;
+  userDisplayEmail.textContent = email || '';
+  userAvatar.textContent = (username || 'U').charAt(0).toUpperCase();
+}
+
+// ── Document badge ───────────────────────────────────────────────────────
+function updateDocsBadge(hasDocs) {
+  if (hasDocs) {
+    topbarDocsBadge.classList.remove('hidden');
+  } else {
+    topbarDocsBadge.classList.add('hidden');
+  }
 }
 
 // ── Messages ──────────────────────────────────────────────────────────────
@@ -250,7 +271,6 @@ async function selectThread(tid) {
     currentThreadId = data.thread_id;
     topbarLabel.textContent = 'Conversation';
     renderHistory(data.messages);
-    updateModeUI(data.mode);
     await loadThreads();
   } catch (err) {
     showToast(err.message, 'error');
@@ -278,16 +298,18 @@ async function loadDocuments() {
     if (!documents.length) {
       docListEl.innerHTML = '<p class="empty-hint">No documents uploaded</p>';
       clearDocsBtn.classList.add('hidden');
+      updateDocsBadge(false);
       return;
     }
     clearDocsBtn.classList.remove('hidden');
+    updateDocsBadge(true);
     documents.forEach(name => {
       const item = document.createElement('div');
       item.className = 'doc-item';
       item.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
         <span class="doc-name">${escapeHtml(name)}</span>
         <button class="doc-delete" data-name="${escapeHtml(name)}" title="Delete document">×</button>`;
-      
+
       item.querySelector('.doc-delete').addEventListener('click', e => {
         e.stopPropagation();
         deleteDocument(name);
@@ -303,48 +325,104 @@ async function deleteDocument(name) {
   try {
     const data = await api(`/api/documents/${encodeURIComponent(name)}`, { method: 'DELETE' });
     showToast(`Deleted ${name}`, 'success');
-    updateModeUI(data.mode);
-    if (data.thread_id && data.thread_id !== currentThreadId) {
-      currentThreadId = data.thread_id;
-      clearMessages();
-    }
+    updateDocsBadge(data.has_documents);
     await loadDocuments();
   } catch (err) {
     showToast(err.message, 'error');
   }
 }
 
-// ── Config form ───────────────────────────────────────────────────────────
-configForm.addEventListener('submit', async e => {
+// ── Auth Tabs ─────────────────────────────────────────────────────────────
+tabLogin.addEventListener('click', () => {
+  tabLogin.classList.add('active');
+  tabRegister.classList.remove('active');
+  loginForm.classList.remove('hidden');
+  registerForm.classList.add('hidden');
+  loginError.classList.add('hidden');
+  registerError.classList.add('hidden');
+});
+
+tabRegister.addEventListener('click', () => {
+  tabRegister.classList.add('active');
+  tabLogin.classList.remove('active');
+  registerForm.classList.remove('hidden');
+  loginForm.classList.add('hidden');
+  loginError.classList.add('hidden');
+  registerError.classList.add('hidden');
+});
+
+// ── Login form ────────────────────────────────────────────────────────────
+loginForm.addEventListener('submit', async e => {
   e.preventDefault();
-  configError.classList.add('hidden');
-  setLoading(configSubmit, true);
+  loginError.classList.add('hidden');
+  setLoading(loginSubmit, true);
 
   const payload = {
-    username: document.getElementById('username').value.trim(),
-    groq_api_key: document.getElementById('groq-key').value.trim(),
-    model_name: document.getElementById('model-name').value.trim() || 'openai/gpt-oss-20b',
-    tavily_api_key: document.getElementById('tavily-key').value.trim(),
-    langchain_api_key: document.getElementById('langchain-key').value.trim() || null,
+    email: document.getElementById('login-email').value.trim(),
+    password: document.getElementById('login-password').value,
   };
 
   try {
-    const data = await api('/api/config', {
+    const data = await api('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
     currentThreadId = data.current_thread_id;
-    configOverlay.classList.add('hidden');
+    updateUserProfile(data.username, payload.email);
+    authOverlay.classList.add('hidden');
     appEl.classList.remove('hidden');
     await loadThreads();
     await loadDocuments();
-    showToast('Connected ✓', 'success');
+    showToast(`Welcome back, ${data.username}!`, 'success');
   } catch (err) {
-    configError.textContent = err.message;
-    configError.classList.remove('hidden');
+    loginError.textContent = err.message;
+    loginError.classList.remove('hidden');
   } finally {
-    setLoading(configSubmit, false);
+    setLoading(loginSubmit, false);
+  }
+});
+
+// ── Register form ─────────────────────────────────────────────────────────
+registerForm.addEventListener('submit', async e => {
+  e.preventDefault();
+  registerError.classList.add('hidden');
+
+  const password = document.getElementById('reg-password').value;
+  const confirm = document.getElementById('reg-confirm').value;
+
+  if (password !== confirm) {
+    registerError.textContent = 'Passwords do not match.';
+    registerError.classList.remove('hidden');
+    return;
+  }
+
+  setLoading(registerSubmit, true);
+
+  const payload = {
+    username: document.getElementById('reg-username').value.trim(),
+    email: document.getElementById('reg-email').value.trim(),
+    password: password,
+  };
+
+  try {
+    const data = await api('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    currentThreadId = data.current_thread_id;
+    updateUserProfile(data.username, payload.email);
+    authOverlay.classList.add('hidden');
+    appEl.classList.remove('hidden');
+    await loadThreads();
+    await loadDocuments();
+    showToast(`Welcome, ${data.username}! Account created.`, 'success');
+  } catch (err) {
+    registerError.textContent = err.message;
+    registerError.classList.remove('hidden');
+  } finally {
+    setLoading(registerSubmit, false);
   }
 });
 
@@ -363,7 +441,6 @@ newChatBtn.addEventListener('click', async () => {
     currentThreadId = data.thread_id;
     topbarLabel.textContent = 'New Conversation';
     clearMessages();
-    updateModeUI(data.mode);
     await loadThreads();
   } catch (err) {
     showToast(err.message, 'error');
@@ -482,7 +559,6 @@ async function handleSend() {
           addCopyButtons(bubble);
           renderSources(evt.sources || [], bubble);
           currentThreadId = evt.thread_id;
-          updateModeUI(evt.mode);
           await loadThreads();
 
         } else if (evt.type === 'error') {
@@ -526,7 +602,7 @@ async function uploadFiles(files) {
     const data = await api('/api/documents/upload', { method: 'POST', body: form });
     currentThreadId = data.thread_id;
     topbarLabel.textContent = 'Document Analysis';
-    updateModeUI(data.mode);
+    updateDocsBadge(true);
     showToast(`✅ ${data.uploaded.length} document(s) uploaded`, 'success');
     await loadDocuments();
     await loadThreads();
@@ -540,7 +616,7 @@ clearDocsBtn.addEventListener('click', async () => {
   try {
     const data = await api('/api/documents', { method: 'DELETE' });
     currentThreadId = data.thread_id;
-    updateModeUI('search');
+    updateDocsBadge(false);
     clearMessages();
     showToast('All documents cleared', 'success');
     await loadDocuments();
@@ -561,11 +637,22 @@ cleanThreadsBtn.addEventListener('click', async () => {
   }
 });
 
-// ── Reconfigure ───────────────────────────────────────────────────────────
-settingsBtn.addEventListener('click', () => {
+// ── Logout ────────────────────────────────────────────────────────────────
+logoutBtn.addEventListener('click', async () => {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } catch (_) {
+    // Ignore errors during logout
+  }
   appEl.classList.add('hidden');
-  configOverlay.classList.remove('hidden');
-  configError.classList.add('hidden');
+  authOverlay.classList.remove('hidden');
+  loginError.classList.add('hidden');
+  registerError.classList.add('hidden');
+  // Reset state
+  currentThreadId = null;
+  currentUsername = '';
+  currentEmail = '';
+  showToast('Logged out', 'success');
 });
 
 // ── Sidebar toggles ───────────────────────────────────────────────────────
@@ -580,15 +667,16 @@ document.addEventListener('click', e => {
   }
 });
 
-// ── Check if already configured (page reload) ─────────────────────────────
+// ── Check if already authenticated (page reload) ──────────────────────────
 (async () => {
   try {
-    const status = await api('/api/config/status');
-    if (status.configured) {
+    const status = await api('/api/auth/status');
+    if (status.authenticated) {
       currentThreadId = status.current_thread_id;
-      configOverlay.classList.add('hidden');
+      updateUserProfile(status.username, '');
+      updateDocsBadge(status.has_documents);
+      authOverlay.classList.add('hidden');
       appEl.classList.remove('hidden');
-      updateModeUI(status.mode);
       await loadThreads();
       await loadDocuments();
       if (currentThreadId) {
@@ -597,6 +685,6 @@ document.addEventListener('click', e => {
       }
     }
   } catch (_) {
-    // Not configured yet — show config modal
+    // Not authenticated — show auth modal
   }
 })();

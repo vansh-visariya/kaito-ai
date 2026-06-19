@@ -16,31 +16,77 @@
 </head>
 
 <body>
-  <!-- ===================== CONFIG MODAL ===================== -->
-  <div id="config-overlay" class="modal-overlay active">
-    <div class="modal-card" id="config-modal">
+  <!-- ===================== AUTH MODAL ===================== -->
+  <div id="auth-overlay" class="modal-overlay active">
+    <div class="modal-card" id="auth-modal">
       <div class="modal-header">
         <div class="modal-logo">
           <div class="logo-ring"></div>
           <span class="logo-k">K</span>
         </div>
         <h1 class="modal-title">Kaito <span class="gradient-text">AI</span></h1>
-        <p class="modal-subtitle">Configure your API keys to get started</p>
+        <p class="modal-subtitle">Sign in to start chatting</p>
       </div>
 
-      <form id="config-form" class="modal-form" autocomplete="off">
+      <!-- Auth Tabs -->
+      <div class="auth-tabs">
+        <button class="auth-tab active" id="tab-login" data-tab="login">Sign In</button>
+        <button class="auth-tab" id="tab-register" data-tab="register">Create Account</button>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form" class="modal-form" autocomplete="off">
         <div class="form-group">
-          <label for="username">Username <span class="required">*</span></label>
+          <label for="login-email">Email <span class="required">*</span></label>
           <div class="input-wrapper">
-            <input type="text" id="username" placeholder="Your unique identifier" required autocomplete="off" />
+            <input type="email" id="login-email" placeholder="you@example.com" required autocomplete="off" />
           </div>
         </div>
 
         <div class="form-group">
-          <label for="groq-key">Groq API Key <span class="required">*</span></label>
+          <label for="login-password">Password <span class="required">*</span></label>
           <div class="input-wrapper">
-            <input type="password" id="groq-key" placeholder="gsk_..." required autocomplete="off" />
-            <button type="button" class="toggle-visibility" data-target="groq-key" aria-label="Toggle visibility">
+            <input type="password" id="login-password" placeholder="••••••••" required autocomplete="off" />
+            <button type="button" class="toggle-visibility" data-target="login-password" aria-label="Toggle visibility">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div id="login-error" class="error-banner hidden"></div>
+
+        <button type="submit" id="login-submit" class="btn-primary btn-full">
+          <span class="btn-text">Sign In</span>
+          <span class="btn-spinner hidden"></span>
+        </button>
+      </form>
+
+      <!-- Register Form -->
+      <form id="register-form" class="modal-form hidden" autocomplete="off">
+        <div class="form-group">
+          <label for="reg-username">Username <span class="required">*</span></label>
+          <div class="input-wrapper">
+            <input type="text" id="reg-username" placeholder="Your display name" required autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-email">Email <span class="required">*</span></label>
+          <div class="input-wrapper">
+            <input type="email" id="reg-email" placeholder="you@example.com" required autocomplete="off" />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="reg-password">Password <span class="required">*</span></label>
+          <div class="input-wrapper">
+            <input type="password" id="reg-password" placeholder="Minimum 8 characters" required minlength="8"
+              autocomplete="off" />
+            <button type="button" class="toggle-visibility" data-target="reg-password" aria-label="Toggle visibility">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                 stroke-width="2">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
@@ -51,45 +97,17 @@
         </div>
 
         <div class="form-group">
-          <label for="model-name">Model</label>
+          <label for="reg-confirm">Confirm Password <span class="required">*</span></label>
           <div class="input-wrapper">
-            <input type="text" id="model-name" value="openai/gpt-oss-20b" autocomplete="off" />
-          </div>
-          <span class="form-hint">e.g. openai/gpt-oss-20b, llama3-8b-8192, mixtral-8x7b-32768</span>
-        </div>
-
-        <div class="form-group">
-          <label for="tavily-key">Tavily API Key <span class="optional">(for web search)</span></label>
-          <div class="input-wrapper">
-            <input type="password" id="tavily-key" placeholder="tvly-..." autocomplete="off" />
-            <button type="button" class="toggle-visibility" data-target="tavily-key" aria-label="Toggle visibility">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </button>
+            <input type="password" id="reg-confirm" placeholder="Re-enter your password" required minlength="8"
+              autocomplete="off" />
           </div>
         </div>
 
-        <div class="form-group">
-          <label for="langchain-key">LangChain API Key <span class="optional">(optional tracing)</span></label>
-          <div class="input-wrapper">
-            <input type="password" id="langchain-key" placeholder="ls__..." autocomplete="off" />
-            <button type="button" class="toggle-visibility" data-target="langchain-key" aria-label="Toggle visibility">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </button>
-          </div>
-        </div>
+        <div id="register-error" class="error-banner hidden"></div>
 
-        <div id="config-error" class="error-banner hidden"></div>
-
-        <button type="submit" id="config-submit" class="btn-primary btn-full">
-          <span class="btn-text">Connect</span>
+        <button type="submit" id="register-submit" class="btn-primary btn-full">
+          <span class="btn-text">Create Account</span>
           <span class="btn-spinner hidden"></span>
         </button>
       </form>
@@ -129,16 +147,8 @@
         </button>
       </div>
 
-      <!-- Mode badge -->
-      <div class="mode-badge-wrapper">
-        <div id="mode-badge" class="mode-badge mode-search">
-          <span class="mode-icon">🔍</span>
-          <span class="mode-label">Search Mode</span>
-        </div>
-      </div>
-
       <!-- Thread List -->
-      <div class="sidebar-section">
+      <div class="sidebar-section" style="flex: 1; overflow: hidden;">
         <div class="section-label">Conversations</div>
         <div id="thread-list" class="thread-list"></div>
       </div>
@@ -159,7 +169,7 @@
         </button>
       </div>
 
-      <!-- Cleanup -->
+      <!-- Footer: User Profile + Actions -->
       <div class="sidebar-footer">
         <button id="clean-threads-btn" class="btn-ghost btn-sm">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
@@ -170,14 +180,22 @@
           </svg>
           Clean Empty Threads
         </button>
-        <button id="settings-btn" class="btn-ghost btn-sm">
+        <!-- User profile -->
+        <div id="user-profile" class="user-profile">
+          <div id="user-avatar" class="user-avatar">U</div>
+          <div class="user-info">
+            <div id="user-display-name" class="user-name">User</div>
+            <div id="user-display-email" class="user-email">user@email.com</div>
+          </div>
+        </div>
+        <button id="logout-btn" class="btn-ghost btn-sm">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
             stroke-width="2">
-            <circle cx="12" cy="12" r="3" />
-            <path
-              d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
-          Reconfigure
+          Logout
         </button>
       </div>
     </aside>
@@ -197,7 +215,7 @@
         <div class="topbar-title">
           <span id="topbar-thread-label">New Conversation</span>
         </div>
-        <div id="topbar-mode" class="topbar-mode mode-search">🔍 Search</div>
+        <div id="topbar-docs-badge" class="topbar-docs hidden">📄 Docs Active</div>
       </div>
 
       <!-- Messages -->
@@ -239,7 +257,7 @@
 
         <div class="input-row">
           <!-- PDF Upload -->
-          <label for="pdf-upload" class="icon-btn upload-btn" title="Upload PDF for RAG analysis">
+          <label for="pdf-upload" class="icon-btn upload-btn" title="Upload PDF for document analysis">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
               stroke-width="2">
               <path

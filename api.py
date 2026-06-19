@@ -3,7 +3,6 @@ Run with:
     uvicorn api:app --reload --port 8000
 """
 
-import asyncio
 import gc
 import json
 import logging
@@ -12,7 +11,7 @@ import shutil
 import sys
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Annotated, Optional, TypedDict
 
 # pysqlite3 shim — Linux only
 if sys.platform == "linux":
@@ -25,32 +24,37 @@ if sys.platform == "linux":
 # Protobuf fix — MUST be before any chromadb import
 os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"
 
-from fastapi import FastAPI, HTTPException, UploadFile, File, Cookie, Response, Depends
+from fastapi import Cookie, Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from langchain_core.messages import AIMessage, HumanMessage
+from langgraph.graph import StateGraph
+from langgraph.graph.message import add_messages
 from pydantic import BaseModel
 
-from agent.agent import create_search_agent, create_rag_agent
+from agent.agent import create_agent
 from config import (
-    Mode,
-    THREAD_PREFIX,
+    DEFAULT_MODEL,
     VECTOR_STORE_DIR,
     configure_environment,
-    get_thread_mode,
 )
-from utility import generate_unique_id, get_memory_for_mode, validate_groq_key
+from database.memory import get_memory
+from database.users import create_session, login, logout, register, validate_session
+from utility import generate_unique_id
 
-# Logging
+# ── Logging ────────────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(name)-25s | %(levelname)-7s | %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# App
-app = FastAPI(title="Kaito-AI API", version="2.0.0")
+# ── Configure server environment (API keys, LangSmith) ────────────────────
+configure_environment()
+
+# ── App ────────────────────────────────────────────────────────────────────
+app = FastAPI(title="Kaito-AI API", version="3.0.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -60,78 +64,107 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Multi-User Session Store (#4)
+
+# ══════════════════════════════════════════════════════════════════════════
+# SESSION MODEL
+# ══════════════════════════════════════════════════════════════════════════
 class Session:
-    def __init__(self, session_id: str) -> None:
-        self.id = session_id
-        self.groq_api_key: str = ""
-        self.model_name: str = "openai/gpt-oss-20b"
-        self.tavily_api_key: str = ""
-        self.langchain_api_key: Optional[str] = None
-        self.search_graph = None
-        self.rag_graph = None
-        self.current_mode: Mode = Mode.SEARCH
+    def __init__(self, user_id: int, username: str, email: str) -> None:
+        self.user_id = user_id
+        self.username = username
+        self.email = email
+        self.model_name: str = DEFAULT_MODEL
+        self.graph = None  # single unified agent
         self.uploaded_docs: list[str] = []
         self.thread_list: list[str] = []
         self.current_thread_id: str = ""
-        self.vector_store_dir: str = f"{VECTOR_STORE_DIR}_{session_id}"
-
-    def is_configured(self) -> bool:
-        return bool(self.groq_api_key)
+        self.vector_store_dir: str = f"{VECTOR_STORE_DIR}_{user_id}"
 
 
-SESSIONS: dict[str, Session] = {}
+SESSIONS: dict[int, Session] = {}  # keyed by user_id
+
+SESSIONS_FILE = Path("database/sessions.json")
+
 
 def save_sessions():
     data = {}
-    for sid, s in SESSIONS.items():
-        data[sid] = {
+    for uid, s in SESSIONS.items():
+        data[str(uid)] = {
+            "username": s.username,
+            "email": s.email,
             "thread_list": s.thread_list,
             "current_thread_id": s.current_thread_id,
             "uploaded_docs": s.uploaded_docs,
-            "current_mode": s.current_mode.value,
             "vector_store_dir": s.vector_store_dir,
+            "model_name": s.model_name,
         }
-    Path("database").mkdir(exist_ok=True)
-    Path("database/sessions.json").write_text(json.dumps(data))
+    SESSIONS_FILE.parent.mkdir(exist_ok=True)
+    SESSIONS_FILE.write_text(json.dumps(data))
+
 
 def load_sessions():
-    path = Path("database/sessions.json")
-    if not path.exists():
+    if not SESSIONS_FILE.exists():
         return
     try:
-        data = json.loads(path.read_text())
-        for sid, sdata in data.items():
-            s = Session(sid)
+        data = json.loads(SESSIONS_FILE.read_text())
+        for uid_str, sdata in data.items():
+            uid = int(uid_str)
+            s = Session(
+                user_id=uid,
+                username=sdata.get("username", ""),
+                email=sdata.get("email", ""),
+            )
             s.thread_list = sdata.get("thread_list", [])
             s.current_thread_id = sdata.get("current_thread_id", "")
             s.uploaded_docs = sdata.get("uploaded_docs", [])
-            s.current_mode = Mode(sdata.get("current_mode", "search"))
-            s.vector_store_dir = sdata.get("vector_store_dir", f"{VECTOR_STORE_DIR}_{sid}")
-            SESSIONS[sid] = s
+            s.vector_store_dir = sdata.get("vector_store_dir", f"{VECTOR_STORE_DIR}_{uid}")
+            s.model_name = sdata.get("model_name", DEFAULT_MODEL)
+            SESSIONS[uid] = s
         logger.info("Loaded %d sessions from disk.", len(SESSIONS))
     except Exception as exc:
         logger.error("Failed to load sessions: %s", exc)
 
+
 load_sessions()
 
-def get_session(session_id: Optional[str] = Cookie(default=None)) -> Session:
-    """FastAPI Dependency to get the current user's session."""
-    if not session_id or session_id not in SESSIONS:
-        raise HTTPException(status_code=401, detail="No session found. Please configure API keys first.")
-    session = SESSIONS[session_id]
-    if not session.is_configured():
-        raise HTTPException(status_code=401, detail="Session not configured.")
+
+def _get_or_create_session(user_id: int, username: str, email: str) -> Session:
+    """Get existing session or create a new one for the user."""
+    if user_id in SESSIONS:
+        session = SESSIONS[user_id]
+        # Update username/email in case they changed
+        session.username = username
+        session.email = email
+        return session
+    session = Session(user_id, username, email)
+    SESSIONS[user_id] = session
     return session
 
 
-# Pydantic schemas
-class ConfigRequest(BaseModel):
+def get_session(session_token: Optional[str] = Cookie(default=None)) -> Session:
+    """FastAPI Dependency: validate session token and return Session."""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="Not authenticated. Please log in.")
+
+    user = validate_session(session_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session expired. Please log in again.")
+
+    return _get_or_create_session(user["id"], user["username"], user["email"])
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# PYDANTIC SCHEMAS
+# ══════════════════════════════════════════════════════════════════════════
+class RegisterRequest(BaseModel):
     username: str
-    groq_api_key: str
-    model_name: str = "openai/gpt-oss-20b"
-    tavily_api_key: str = ""
-    langchain_api_key: Optional[str] = None
+    email: str
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
 
 
 class ChatRequest(BaseModel):
@@ -143,71 +176,60 @@ class ThreadDeleteRequest(BaseModel):
     thread_id: str
 
 
-# Helpers
-def _create_thread_id(mode: Mode) -> str:
-    return f"{THREAD_PREFIX[mode]}{generate_unique_id()}"
+# ══════════════════════════════════════════════════════════════════════════
+# HELPERS
+# ══════════════════════════════════════════════════════════════════════════
+def _create_thread_id() -> str:
+    return f"thread_{generate_unique_id()}"
 
 
-async def _get_search_graph(session: Session):
-    if not session.search_graph:
-        session.search_graph = await create_search_agent(
-            session.groq_api_key, session.model_name, session.tavily_api_key
+async def _get_or_build_graph(session: Session):
+    """Get or build the unified agent graph for the session."""
+    if session.graph:
+        return session.graph
+
+    session_uploads_dir = Path("uploads") / str(session.user_id)
+    file_paths = []
+    if session_uploads_dir.exists():
+        file_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
+
+    if file_paths:
+        session.graph = await create_agent(
+            session.model_name,
+            file_paths,
+            session.vector_store_dir,
         )
-    return session.search_graph
+    else:
+        session.graph = await create_agent(session.model_name)
+
+    return session.graph
 
 
-async def _get_graph_for_thread(session: Session, thread_id: str):
-    mode = get_thread_mode(thread_id)
-    if mode == Mode.RAG:
-        if not session.rag_graph:
-            # If server restarted, session.rag_graph is None. Rebuild if documents exist.
-            session_uploads_dir = Path("uploads") / session.id
-            if session_uploads_dir.exists():
-                all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
-                if all_paths:
-                    session.rag_graph = await create_rag_agent(
-                        session.groq_api_key,
-                        session.model_name,
-                        all_paths,
-                        session.tavily_api_key,
-                        session.vector_store_dir,
-                    )
-            
-            if not session.rag_graph:
-                raise HTTPException(status_code=400, detail="RAG graph not available. Upload documents first.")
-        return session.rag_graph
-    return await _get_search_graph(session)
-
-
-from langgraph.graph import StateGraph
-from langgraph.graph.message import add_messages
-from typing import Annotated, TypedDict
-from database.memory import get_rag_memory, get_search_memory
 
 class _DummyState(TypedDict):
     messages: Annotated[list, add_messages]
 
+
 async def _read_thread_state(thread_id: str) -> list:
-    mode = get_thread_mode(thread_id)
-    memory = await get_rag_memory() if mode == Mode.RAG else await get_search_memory()
-    
+    memory = await get_memory()
+
     builder = StateGraph(_DummyState)
     builder.add_node("dummy", lambda x: x)
     builder.set_entry_point("dummy")
     graph = builder.compile(checkpointer=memory)
-    
+
     config = {"configurable": {"thread_id": thread_id}}
     state = await graph.aget_state(config)
     return state.values.get("messages", [])
 
 
-async def _load_conversation(session: Session, thread_id: str) -> list[dict]:
+async def _load_conversation(thread_id: str) -> list[dict]:
     try:
         messages = await _read_thread_state(thread_id)
     except Exception as exc:
         logger.error("Failed to read thread state for %s: %s", thread_id, exc)
         return []
-        
+
     result = []
     for msg in messages:
         if isinstance(msg, HumanMessage):
@@ -218,8 +240,7 @@ async def _load_conversation(session: Session, thread_id: str) -> list[dict]:
 
 
 async def _delete_thread_from_db(thread_id: str) -> bool:
-    mode = get_thread_mode(thread_id)
-    memory = await get_memory_for_mode(mode)
+    memory = await get_memory()
     try:
         async with memory.conn.cursor() as cursor:
             await cursor.execute("DELETE FROM checkpoints WHERE thread_id = ?", (thread_id,))
@@ -230,90 +251,134 @@ async def _delete_thread_from_db(thread_id: str) -> bool:
         return False
 
 
-async def _thread_preview(session: Session, thread_id: str) -> str:
-    mode = get_thread_mode(thread_id)
-    icon = "📄" if mode == Mode.RAG else "🔍"
-    messages = await _load_conversation(session, thread_id)
+async def _thread_preview(thread_id: str) -> str:
+    messages = await _load_conversation(thread_id)
     if messages:
         content = messages[0]["content"]
         preview = content[:40] + "..." if len(content) > 40 else content
-        return f"{icon} {preview}"
-    return f"{icon} Thread {thread_id[-8:]}"
+        return f"💬 {preview}"
+    return f"💬 Thread {thread_id[-8:]}"
 
 
-# Routes — Config
-@app.post("/api/config")
-async def configure(req: ConfigRequest, response: Response):
-    """Set API keys and model. Creates a new session and returns a cookie."""
-    if not validate_groq_key(req.groq_api_key):
-        raise HTTPException(status_code=400, detail="Invalid Groq API key.")
+# ══════════════════════════════════════════════════════════════════════════
+# ROUTES — AUTH
+# ══════════════════════════════════════════════════════════════════════════
+@app.post("/api/auth/register")
+async def auth_register(req: RegisterRequest, response: Response):
+    """Register a new user, auto-login, and return session cookie."""
+    try:
+        register(req.email, req.password, req.username)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
-    session_id = req.username
-    if session_id in SESSIONS:
-        session = SESSIONS[session_id]
-    else:
-        session = Session(session_id)
-        SESSIONS[session_id] = session
+    # Auto-login after registration
+    user = login(req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=500, detail="Registration succeeded but login failed.")
 
-    session.groq_api_key = req.groq_api_key
-    session.model_name = req.model_name
-    session.tavily_api_key = req.tavily_api_key
-    session.langchain_api_key = req.langchain_api_key
+    token = create_session(user["id"])
+    session = _get_or_create_session(user["id"], user["username"], user["email"])
 
-    configure_environment(
-        groq_api_key=req.groq_api_key,
-        tavily_api_key=req.tavily_api_key,
-        langchain_api_key=req.langchain_api_key,
-    )
-
-    # Bootstrap a default thread ONLY if none exists
+    # Bootstrap a default thread if none exists
     if not session.thread_list:
-        tid = _create_thread_id(Mode.SEARCH)
+        tid = _create_thread_id()
         session.thread_list.append(tid)
         session.current_thread_id = tid
-    
+
     save_sessions()
 
     response.set_cookie(
-        key="session_id",
-        value=session_id,
+        key="session_token",
+        value=token,
         httponly=True,
         samesite="lax",
+        max_age=7 * 86400,  # 7 days
     )
 
     return {
         "status": "ok",
-        "model": req.model_name,
+        "username": user["username"],
         "current_thread_id": session.current_thread_id,
     }
 
 
-@app.get("/api/config/status")
-async def config_status(session_id: Optional[str] = Cookie(default=None)):
-    """Check whether the session is configured."""
-    if not session_id or session_id not in SESSIONS:
-        raise HTTPException(status_code=401, detail="No session")
-    session = SESSIONS[session_id]
-    if not session.is_configured():
-        raise HTTPException(status_code=401, detail="Session not configured")
+@app.post("/api/auth/login")
+async def auth_login(req: LoginRequest, response: Response):
+    """Login with email and password."""
+    user = login(req.email, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+
+    token = create_session(user["id"])
+    session = _get_or_create_session(user["id"], user["username"], user["email"])
+
+    # Bootstrap a default thread if none exists
+    if not session.thread_list:
+        tid = _create_thread_id()
+        session.thread_list.append(tid)
+        session.current_thread_id = tid
+
+    save_sessions()
+
+    response.set_cookie(
+        key="session_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        max_age=7 * 86400,  # 7 days
+    )
 
     return {
-        "configured": True,
-        "model": session.model_name,
+        "status": "ok",
+        "username": user["username"],
         "current_thread_id": session.current_thread_id,
-        "mode": session.current_mode.value,
     }
 
 
-# Routes — Threads
+@app.post("/api/auth/logout")
+async def auth_logout(
+    response: Response,
+    session_token: Optional[str] = Cookie(default=None),
+):
+    """Logout: clear cookie and delete session token."""
+    if session_token:
+        logout(session_token)
+    response.delete_cookie(key="session_token")
+    return {"status": "ok"}
+
+
+@app.get("/api/auth/status")
+async def auth_status(session_token: Optional[str] = Cookie(default=None)):
+    """Check whether the user is authenticated."""
+    if not session_token:
+        raise HTTPException(status_code=401, detail="No session")
+
+    user = validate_session(session_token)
+    if not user:
+        raise HTTPException(status_code=401, detail="Session expired")
+
+    session = _get_or_create_session(user["id"], user["username"], user["email"])
+
+    has_docs = len(session.uploaded_docs) > 0
+
+    return {
+        "authenticated": True,
+        "username": user["username"],
+        "current_thread_id": session.current_thread_id,
+        "has_documents": has_docs,
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# ROUTES — THREADS
+# ══════════════════════════════════════════════════════════════════════════
 @app.get("/api/threads")
 async def list_threads(session: Session = Depends(get_session)):
     threads = []
     for tid in reversed(session.thread_list):
         threads.append({
             "id": tid,
-            "preview": await _thread_preview(session, tid),
-            "mode": get_thread_mode(tid).value,
+            "preview": await _thread_preview(tid),
             "active": tid == session.current_thread_id,
         })
     return {"threads": threads}
@@ -321,13 +386,12 @@ async def list_threads(session: Session = Depends(get_session)):
 
 @app.post("/api/threads/new")
 async def new_thread(session: Session = Depends(get_session)):
-    tid = _create_thread_id(Mode.SEARCH)
+    tid = _create_thread_id()
     session.current_thread_id = tid
-    session.current_mode = Mode.SEARCH
     if tid not in session.thread_list:
         session.thread_list.append(tid)
     save_sessions()
-    return {"thread_id": tid, "mode": Mode.SEARCH.value}
+    return {"thread_id": tid}
 
 
 @app.post("/api/threads/select")
@@ -336,10 +400,9 @@ async def select_thread(req: ThreadDeleteRequest, session: Session = Depends(get
     if thread_id not in session.thread_list:
         raise HTTPException(status_code=404, detail="Thread not found.")
     session.current_thread_id = thread_id
-    session.current_mode = get_thread_mode(thread_id)
     save_sessions()
-    messages = await _load_conversation(session, thread_id)
-    return {"thread_id": thread_id, "messages": messages, "mode": session.current_mode.value}
+    messages = await _load_conversation(thread_id)
+    return {"thread_id": thread_id, "messages": messages}
 
 
 @app.delete("/api/threads/{thread_id}")
@@ -353,13 +416,10 @@ async def delete_thread(thread_id: str, session: Session = Depends(get_session))
     if session.current_thread_id == thread_id:
         if session.thread_list:
             session.current_thread_id = session.thread_list[-1]
-            session.current_mode = get_thread_mode(session.current_thread_id)
         else:
-            # Fallback if empty (shouldn't happen since we block deleting the last one)
-            tid = _create_thread_id(Mode.SEARCH)
+            tid = _create_thread_id()
             session.thread_list.append(tid)
             session.current_thread_id = tid
-            session.current_mode = Mode.SEARCH
     save_sessions()
     return {"deleted": thread_id, "current_thread_id": session.current_thread_id}
 
@@ -370,7 +430,7 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
     for tid in list(session.thread_list):
         if tid == session.current_thread_id:
             continue
-        if not await _load_conversation(session, tid):
+        if not await _load_conversation(tid):
             await _delete_thread_from_db(tid)
             session.thread_list.remove(tid)
             deleted.append(tid)
@@ -379,7 +439,9 @@ async def delete_empty_threads(session: Session = Depends(get_session)):
     return {"deleted": deleted, "count": len(deleted)}
 
 
-# Routes — Chat
+# ══════════════════════════════════════════════════════════════════════════
+# ROUTES — CHAT
+# ══════════════════════════════════════════════════════════════════════════
 @app.post("/api/chat")
 async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     """Blocking chat — returns full response in one JSON object."""
@@ -388,7 +450,7 @@ async def chat(req: ChatRequest, session: Session = Depends(get_session)):
     if thread_id not in session.thread_list:
         session.thread_list.append(thread_id)
 
-    graph = await _get_graph_for_thread(session, thread_id)
+    graph = await _get_or_build_graph(session)
     config = {"configurable": {"thread_id": thread_id}}
 
     try:
@@ -404,7 +466,6 @@ async def chat(req: ChatRequest, session: Session = Depends(get_session)):
         "thread_id": thread_id,
         "response": response,
         "sources": sources,
-        "mode": get_thread_mode(thread_id).value,
     }
 
 
@@ -416,7 +477,7 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
     if thread_id not in session.thread_list:
         session.thread_list.append(thread_id)
 
-    graph  = await _get_graph_for_thread(session, thread_id)
+    graph  = await _get_or_build_graph(session)
     config = {"configurable": {"thread_id": thread_id}}
 
     async def generate():
@@ -459,7 +520,7 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
             return
 
         session.current_thread_id = thread_id
-        yield f"data: {json.dumps({'type': 'done', 'thread_id': thread_id, 'mode': get_thread_mode(thread_id).value, 'sources': sources})}\n\n"
+        yield f"data: {json.dumps({'type': 'done', 'thread_id': thread_id, 'sources': sources})}\n\n"
 
     return StreamingResponse(
         generate(),
@@ -473,17 +534,20 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
 
 @app.get("/api/chat/{thread_id}/history")
 async def chat_history(thread_id: str, session: Session = Depends(get_session)):
-    messages = await _load_conversation(session, thread_id)
+    messages = await _load_conversation(thread_id)
     return {"thread_id": thread_id, "messages": messages}
 
 
-# Routes — Documents (RAG)
+# ══════════════════════════════════════════════════════════════════════════
+# ROUTES — DOCUMENTS (RAG)
+# ══════════════════════════════════════════════════════════════════════════
 UPLOADS_DIR = Path("uploads")
+
 
 @app.post("/api/documents/upload")
 async def upload_documents(files: list[UploadFile] = File(...), session: Session = Depends(get_session)):
-    """Save uploaded PDFs to session dir, build the RAG chain."""
-    session_uploads_dir = UPLOADS_DIR / session.id
+    """Save uploaded PDFs to session dir, rebuild the unified agent."""
+    session_uploads_dir = UPLOADS_DIR / str(session.user_id)
     session_uploads_dir.mkdir(parents=True, exist_ok=True)
 
     saved_files = []
@@ -494,7 +558,7 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
         content = await upload.read()
         if not content:
             raise HTTPException(status_code=400, detail=f"{upload.filename!r} is empty.")
-        
+
         file_path = session_uploads_dir / upload.filename
         file_path.write_bytes(content)
         saved_files.append(upload.filename)
@@ -506,68 +570,59 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
 
     all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
 
-    session.rag_graph = await create_rag_agent(
-        session.groq_api_key,
+    # Rebuild the unified agent with document retriever
+    session.graph = await create_agent(
         session.model_name,
         all_paths,
-        session.tavily_api_key,
         session.vector_store_dir,
     )
-    session.current_mode = Mode.RAG
 
     for name in saved_files:
         if name not in session.uploaded_docs:
             session.uploaded_docs.append(name)
-            
+
     save_sessions()
 
-    tid = _create_thread_id(Mode.RAG)
+    tid = _create_thread_id()
     session.current_thread_id = tid
     if tid not in session.thread_list:
         session.thread_list.append(tid)
 
-    return {"uploaded": session.uploaded_docs, "thread_id": tid, "mode": Mode.RAG.value}
+    return {"uploaded": session.uploaded_docs, "thread_id": tid}
 
 
 @app.delete("/api/documents/{filename}")
 async def delete_document(filename: str, session: Session = Depends(get_session)):
-    session_uploads_dir = UPLOADS_DIR / session.id
+    session_uploads_dir = UPLOADS_DIR / str(session.user_id)
     file_path = session_uploads_dir / filename
 
     if file_path.exists():
         # 1. Delete from vector store
         from agent.agent import delete_document_from_vector_store
         delete_document_from_vector_store(str(file_path.absolute()), session.vector_store_dir)
-        
+
         # 2. Delete file
         file_path.unlink(missing_ok=True)
-    
+
     if filename in session.uploaded_docs:
         session.uploaded_docs.remove(filename)
         save_sessions()
 
     all_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
-    
+
     if not all_paths:
-        # No documents left -> switch to search mode
-        session.rag_graph = None
-        session.current_mode = Mode.SEARCH
+        # No documents left -> rebuild agent without retriever
+        session.graph = await create_agent(session.model_name)
         save_sessions()
-        tid = _create_thread_id(Mode.SEARCH)
-        session.current_thread_id = tid
-        if tid not in session.thread_list:
-            session.thread_list.append(tid)
-        return {"deleted": filename, "thread_id": tid, "mode": Mode.SEARCH.value}
+        return {"deleted": filename, "has_documents": False}
     else:
-        # Rebuild RAG agent (updates BM25, re-instantiates hybrid retriever)
-        session.rag_graph = await create_rag_agent(
-            session.groq_api_key,
+        # Rebuild agent with updated retriever
+        session.graph = await create_agent(
             session.model_name,
             all_paths,
-            session.tavily_api_key,
             session.vector_store_dir,
         )
-        return {"deleted": filename, "mode": Mode.RAG.value}
+        return {"deleted": filename, "has_documents": True}
 
 
 @app.get("/api/documents")
@@ -577,23 +632,25 @@ async def list_documents(session: Session = Depends(get_session)):
 
 @app.delete("/api/documents")
 async def clear_documents(session: Session = Depends(get_session)):
-    session.rag_graph = None
+    session.graph = None
     gc.collect()
-    
+
     if os.path.exists(session.vector_store_dir):
         shutil.rmtree(session.vector_store_dir, ignore_errors=True)
-        
-    session_uploads_dir = UPLOADS_DIR / session.id
+
+    session_uploads_dir = UPLOADS_DIR / str(session.user_id)
     if session_uploads_dir.exists():
         shutil.rmtree(session_uploads_dir, ignore_errors=True)
-    
+
     session.uploaded_docs = []
-    session.current_mode = Mode.SEARCH
     # Generate a fresh unique directory so next upload doesn't hit Windows file lock
     session.vector_store_dir = f"{VECTOR_STORE_DIR}_{uuid.uuid4().hex}"
     save_sessions()
 
-    tid = _create_thread_id(Mode.SEARCH)
+    # Rebuild agent without documents
+    session.graph = await create_agent(session.model_name)
+
+    tid = _create_thread_id()
     session.current_thread_id = tid
     if tid not in session.thread_list:
         session.thread_list.append(tid)
@@ -601,5 +658,7 @@ async def clear_documents(session: Session = Depends(get_session)):
     return {"cleared": True, "thread_id": tid}
 
 
-# Serve static frontend
+# ══════════════════════════════════════════════════════════════════════════
+# SERVE STATIC FRONTEND
+# ══════════════════════════════════════════════════════════════════════════
 app.mount("/", StaticFiles(directory="frontend", html=True), name="frontend")
