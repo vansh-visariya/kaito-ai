@@ -193,7 +193,7 @@ async def _get_or_build_graph(session: Session):
     if session.graph:
         return session.graph
 
-    session_uploads_dir = Path("uploads") / str(session.user_id)
+    session_uploads_dir = UPLOADS_DIR / str(session.user_id)
     file_paths = []
     if session_uploads_dir.exists():
         file_paths = [str(p.absolute()) for p in session_uploads_dir.glob("*.pdf")]
@@ -729,20 +729,19 @@ async def clear_documents(session: Session = Depends(get_session)):
     session.graph = None
     gc.collect()
 
-    if os.path.exists(session.vector_store_dir):
-        shutil.rmtree(session.vector_store_dir, ignore_errors=True)
-
+    # Delete this user's chunks from the unified vector store
+    from agent.agent import delete_document_from_vector_store
     session_uploads_dir = UPLOADS_DIR / str(session.user_id)
     if session_uploads_dir.exists():
+        for pdf in session_uploads_dir.glob("*.pdf"):
+            delete_document_from_vector_store(str(pdf.absolute()), session.user_id)
         shutil.rmtree(session_uploads_dir, ignore_errors=True)
 
     session.uploaded_docs = []
-    # Generate a fresh unique directory so next upload doesn't hit Windows file lock
-    session.vector_store_dir = f"{VECTOR_STORE_DIR}_{uuid.uuid4().hex}"
     save_sessions()
 
     # Rebuild agent without documents
-    session.graph = await create_agent(session.model_name)
+    session.graph = await create_agent(session.model_name, session.user_id)
 
     tid = _create_thread_id()
     session.current_thread_id = tid

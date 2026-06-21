@@ -732,7 +732,7 @@ clearDocsBtn.addEventListener('click', async () => {
 cleanThreadsBtn.addEventListener('click', async () => {
   try {
     const data = await api('/api/threads', { method: 'DELETE' });
-    showToast(`Cleaned ${data.count} empty thread(s)`, 'success');
+    showToast(`Cleaned ${data.deleted.length} empty thread(s)`, 'success');
     await loadThreads();
   } catch (err) {
     showToast(err.message, 'error');

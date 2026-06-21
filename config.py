@@ -39,7 +39,7 @@ USERS_DB_PATH: str = str(DATA_DIR / "database" / "users.db")
 SESSIONS_FILE_PATH: str = str(DATA_DIR / "database" / "sessions.json")
 UPLOADS_DIR_PATH: str = str(DATA_DIR / "uploads")
 
-LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT")
+LANGSMITH_PROJECT: str = os.environ.get("LANGSMITH_PROJECT", "kaito-ai")
 
 # Server-level API keys (set via .env, NOT user-configurable)
 SERVER_GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
@@ -58,10 +58,10 @@ def configure_environment() -> None:
         os.environ["TAVILY_API_KEY"] = SERVER_TAVILY_API_KEY
 
     # LangSmith tracing
-    os.environ["LANGCHAIN_TRACING_V2"] = "true"
-    os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
     if SERVER_LANGCHAIN_API_KEY:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
         os.environ["LANGCHAIN_API_KEY"] = SERVER_LANGCHAIN_API_KEY
+        os.environ["LANGCHAIN_PROJECT"] = LANGSMITH_PROJECT
 
     # Protobuf implementation fix — MUST be before any chromadb import
     os.environ["PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION"] = "python"

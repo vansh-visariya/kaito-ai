@@ -321,6 +321,9 @@ class _AgentWrapper:
     async def aget_state(self, config: dict):
         return await self._agent.aget_state(config)
 
+    async def aupdate_state(self, config: dict, values: dict):
+        return await self._agent.aupdate_state(config, values)
+
     async def ainvoke(self, inputs: dict, config: dict | None = None) -> dict:
         await _maybe_summarise(self._agent, self._llm, config)
 
@@ -349,8 +352,6 @@ class _AgentWrapper:
         ):
             yield event
 
-    def get_state(self, config: dict):
-        return self._agent.get_state(config)
 
 
 # ── System prompt ─────────────────────────────────────────────────────────
