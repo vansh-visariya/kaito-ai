@@ -494,6 +494,10 @@ async function loadThreads() {
     }
 
     threads.forEach(t => {
+      if (t.active) {
+        topbarLabel.textContent = t.preview || 'Untitled thread';
+      }
+      
       const item = document.createElement('div');
       item.className = `thread-item${t.active ? ' active' : ''}`;
       item.dataset.id = t.id;
@@ -964,6 +968,50 @@ document.addEventListener('click', e => {
     }
   }
 });
+
+// ── Dark mode ────────────────────────────────────────────────────────────
+function applyTheme(isDark) {
+  const root = document.documentElement;
+  const lightSheet = document.getElementById('hljs-light');
+  const darkSheet = document.getElementById('hljs-dark');
+
+  if (isDark) {
+    root.setAttribute('data-theme', 'dark');
+    if (lightSheet) lightSheet.disabled = true;
+    if (darkSheet) darkSheet.disabled = false;
+  } else {
+    root.removeAttribute('data-theme');
+    if (lightSheet) lightSheet.disabled = false;
+    if (darkSheet) darkSheet.disabled = true;
+  }
+}
+
+function initDarkMode() {
+  const toggle = document.getElementById('dark-mode-toggle');
+  if (!toggle) return;
+
+  const stored = localStorage.getItem('kaito-theme');
+  if (stored === 'dark') {
+    applyTheme(true);
+  } else if (!stored && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+    applyTheme(true);
+  }
+
+  toggle.addEventListener('click', () => {
+    const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+    applyTheme(!isDark);
+    localStorage.setItem('kaito-theme', isDark ? 'light' : 'dark');
+  });
+
+  // Listen for system preference changes (if no stored preference)
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+    if (!localStorage.getItem('kaito-theme')) {
+      applyTheme(e.matches);
+    }
+  });
+}
+
+initDarkMode();
 
 // ── Check if already authenticated (page reload) ──────────────────────────
 (async () => {

@@ -315,7 +315,8 @@ async def auth_register(req: RegisterRequest, response: Response):
         key="session_token",
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="none",
+        secure=True,
         max_age=7 * 86400,  # 7 days
     )
 
@@ -348,7 +349,8 @@ async def auth_login(req: LoginRequest, response: Response):
         key="session_token",
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="none",
+        secure=True,
         max_age=7 * 86400,  # 7 days
     )
 

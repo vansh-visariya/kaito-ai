@@ -4,6 +4,8 @@ __pycache__/
 *.pyc
 .pytest_cache/
 uploads/
-database/
 chroma_langchain_db/
 tests/
+database/*.json
+database/*.db
+database/*.sqlite

@@ -3,6 +3,7 @@ FROM python:3.13-slim
 
 # Set the working directory
 WORKDIR /app
+ENV PYTHONPATH=/app
 
 # Ensure Python output is not buffered so we can see logs immediately
 ENV PYTHONUNBUFFERED=1
