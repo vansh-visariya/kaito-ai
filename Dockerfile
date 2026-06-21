@@ -21,4 +21,4 @@ RUN mkdir -p /data/database /data/uploads /data/chroma_langchain_db
 EXPOSE 8000
 
 # Start the Uvicorn server bound to 0.0.0.0
-CMD ["uv", "run", "uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD sh -c "uv run uvicorn api:app --host 0.0.0.0 --port ${PORT:-8000}"
