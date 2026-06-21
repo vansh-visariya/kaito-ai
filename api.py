@@ -251,6 +251,8 @@ async def _load_conversation(thread_id: str) -> list[dict]:
                 if s not in pending_sources:
                     pending_sources.append(s)
         elif isinstance(msg, AIMessage):
+            if not msg.content or not str(msg.content).strip():
+                continue
             result.append({
                 "role": "assistant", 
                 "content": msg.content, 
@@ -494,8 +496,10 @@ async def branch_thread(req: ThreadBranchRequest, session: Session = Depends(get
             # If we haven't hit edit_index yet, we keep everything.
             kept_messages.append(msg)
 
-    # Create new thread
+    # Create new thread, replacing the old one in the sidebar
     new_thread_id = _create_thread_id()
+    # Remove the old thread so it doesn't appear as a duplicate
+    session.thread_list.remove(old_thread_id)
     session.thread_list.append(new_thread_id)
     session.current_thread_id = new_thread_id
     save_sessions()
@@ -505,6 +509,9 @@ async def branch_thread(req: ThreadBranchRequest, session: Session = Depends(get
         graph = await _get_or_build_graph(session)
         config = {"configurable": {"thread_id": new_thread_id}}
         await graph.aupdate_state(config, {"messages": kept_messages})
+
+    # Clean up old thread's checkpoint data
+    await _delete_thread_from_db(old_thread_id)
 
     return {"thread_id": new_thread_id}
 
@@ -577,8 +584,8 @@ async def chat_stream(req: ChatRequest, session: Session = Depends(get_session))
             ):
                 kind = event["event"]
 
-                # —— Stream final-answer tokens only ———————————————
-                if kind == "on_chat_model_stream":
+                # —— Stream final-answer tokens only (filter out CRAG/Multi-Query internal models) ——
+                if kind == "on_chat_model_stream" and event.get("metadata", {}).get("langgraph_node") == "agent":
                     chunk = event["data"]["chunk"]
                     if chunk.content and not chunk.tool_call_chunks:
                         token = chunk.content if isinstance(chunk.content, str) else ""
@@ -678,12 +685,14 @@ async def upload_documents(files: list[UploadFile] = File(...), session: Session
 
     save_sessions()
 
-    tid = _create_thread_id()
-    session.current_thread_id = tid
-    if tid not in session.thread_list:
+    # Reuse the current thread if it exists, otherwise create one
+    tid = session.current_thread_id
+    if not tid:
+        tid = _create_thread_id()
+        session.current_thread_id = tid
         session.thread_list.append(tid)
 
-    return {"uploaded": session.uploaded_docs, "thread_id": tid}
+    return {"uploaded": saved_files, "thread_id": tid}
 
 
 @app.delete("/api/documents/{filename}")
