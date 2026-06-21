@@ -4,13 +4,13 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Kaito AI — Intelligent Chat Assistant</title>
+  <title>Kaito — A notebook for grounded answers</title>
   <meta name="description"
-    content="Kaito AI is an intelligent chatbot with web search and document analysis (RAG) capabilities powered by Groq LLMs." />
+    content="Kaito is a research notebook for grounded answers — search the web and chat with your documents." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link
-    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+    href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..900,0..100,0..1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
     rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
@@ -20,18 +20,16 @@
   <div id="auth-overlay" class="modal-overlay active">
     <div class="modal-card" id="auth-modal">
       <div class="modal-header">
-        <div class="modal-logo">
-          <div class="logo-ring"></div>
-          <span class="logo-k">K</span>
+        <div class="wordmark">
+          <span class="wordmark-k">K</span><span class="wordmark-rest">aito</span>
         </div>
-        <h1 class="modal-title">Kaito <span class="gradient-text">AI</span></h1>
-        <p class="modal-subtitle">Sign in to start chatting</p>
+        <p class="modal-eyebrow">A notebook for grounded answers</p>
       </div>
 
       <!-- Auth Tabs -->
       <div class="auth-tabs">
-        <button class="auth-tab active" id="tab-login" data-tab="login">Sign In</button>
-        <button class="auth-tab" id="tab-register" data-tab="register">Create Account</button>
+        <button class="auth-tab active" id="tab-login" data-tab="login">Sign in</button>
+        <button class="auth-tab" id="tab-register" data-tab="register">Create account</button>
       </div>
 
       <!-- Login Form -->
@@ -49,7 +47,7 @@
             <input type="password" id="login-password" placeholder="••••••••" required autocomplete="off" />
             <button type="button" class="toggle-visibility" data-target="login-password" aria-label="Toggle visibility">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
+                stroke-width="1.6">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
@@ -60,7 +58,7 @@
         <div id="login-error" class="error-banner hidden"></div>
 
         <button type="submit" id="login-submit" class="btn-primary btn-full">
-          <span class="btn-text">Sign In</span>
+          <span class="btn-text">Sign in</span>
           <span class="btn-spinner hidden"></span>
         </button>
       </form>
@@ -88,7 +86,7 @@
               autocomplete="off" />
             <button type="button" class="toggle-visibility" data-target="reg-password" aria-label="Toggle visibility">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                stroke-width="2">
+                stroke-width="1.6">
                 <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
                 <circle cx="12" cy="12" r="3" />
               </svg>
@@ -97,7 +95,7 @@
         </div>
 
         <div class="form-group">
-          <label for="reg-confirm">Confirm Password <span class="required">*</span></label>
+          <label for="reg-confirm">Confirm password <span class="required">*</span></label>
           <div class="input-wrapper">
             <input type="password" id="reg-confirm" placeholder="Re-enter your password" required minlength="8"
               autocomplete="off" />
@@ -107,7 +105,7 @@
         <div id="register-error" class="error-banner hidden"></div>
 
         <button type="submit" id="register-submit" class="btn-primary btn-full">
-          <span class="btn-text">Create Account</span>
+          <span class="btn-text">Create account</span>
           <span class="btn-spinner hidden"></span>
         </button>
       </form>
@@ -120,14 +118,12 @@
     <!-- SIDEBAR -->
     <aside id="sidebar" class="sidebar">
       <div class="sidebar-header">
-        <div class="sidebar-logo">
-          <div class="logo-ring-sm"></div>
-          <span class="logo-k-sm">K</span>
+        <div class="wordmark wordmark-sm">
+          <span class="wordmark-k">K</span><span class="wordmark-rest">aito</span>
         </div>
-        <span class="sidebar-title">Kaito <span class="gradient-text">AI</span></span>
         <button id="sidebar-toggle" class="icon-btn" aria-label="Toggle sidebar">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
@@ -138,18 +134,14 @@
       <!-- New Chat -->
       <div class="sidebar-section">
         <button id="new-chat-btn" class="btn-new-chat">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
-            <line x1="12" y1="5" x2="12" y2="19" />
-            <line x1="5" y1="12" x2="19" y2="12" />
-          </svg>
-          New Chat
+          <span class="plus-mark">+</span>
+          <span>New thread</span>
         </button>
       </div>
 
       <!-- Thread List -->
-      <div class="sidebar-section" style="flex: 1; overflow: hidden;">
-        <div class="section-label">Conversations</div>
+      <div class="sidebar-section sidebar-section-grow">
+        <div class="section-label">Index</div>
         <div id="thread-list" class="thread-list"></div>
       </div>
 
@@ -157,15 +149,15 @@
       <div class="sidebar-section">
         <div class="section-label">Documents</div>
         <div id="doc-list" class="doc-list">
-          <p class="empty-hint">No documents uploaded</p>
+          <p class="empty-hint">No documents filed</p>
         </div>
         <button id="clear-docs-btn" class="btn-ghost btn-sm hidden">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <polyline points="3 6 5 6 21 6" />
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
           </svg>
-          Clear All Docs
+          Clear all
         </button>
       </div>
 
@@ -173,14 +165,13 @@
       <div class="sidebar-footer">
         <button id="clean-threads-btn" class="btn-ghost btn-sm">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <path d="M3 6h18" />
             <path d="M8 6V4h8v2" />
             <path d="M19 6l-1 14H6L5 6" />
           </svg>
-          Clean Empty Threads
+          Tidy index
         </button>
-        <!-- User profile -->
         <div id="user-profile" class="user-profile">
           <div id="user-avatar" class="user-avatar">U</div>
           <div class="user-info">
@@ -190,12 +181,12 @@
         </div>
         <button id="logout-btn" class="btn-ghost btn-sm">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
             <polyline points="16 17 21 12 16 7" />
             <line x1="21" y1="12" x2="9" y2="12" />
           </svg>
-          Logout
+          Sign out
         </button>
       </div>
     </aside>
@@ -206,37 +197,63 @@
       <div class="chat-topbar">
         <button id="mob-sidebar-toggle" class="icon-btn mob-only" aria-label="Open sidebar">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <line x1="3" y1="12" x2="21" y2="12" />
             <line x1="3" y1="6" x2="21" y2="6" />
             <line x1="3" y1="18" x2="21" y2="18" />
           </svg>
         </button>
         <div class="topbar-title">
-          <span id="topbar-thread-label">New Conversation</span>
+          <span id="topbar-thread-label">Untitled thread</span>
         </div>
-        <div id="topbar-docs-badge" class="topbar-docs hidden">📄 Docs Active</div>
+        <div id="topbar-mode" class="topbar-mode" data-mode="search">
+          <span class="topbar-mode-dot"></span>
+          <span class="topbar-mode-label">Search</span>
+        </div>
+        <div id="topbar-docs-badge" class="topbar-docs hidden">Docs filed</div>
       </div>
 
-      <!-- Messages -->
-      <div id="messages" class="messages">
-        <!-- Welcome screen -->
-        <div id="welcome" class="welcome">
-          <div class="welcome-icon">
-            <div class="pulse-ring"></div>
-            <div class="logo-ring-lg"></div>
-            <span class="logo-k-lg">K</span>
-          </div>
-          <h2 class="welcome-title">How can I help you today?</h2>
-          <p class="welcome-sub">Ask me anything, search the web, or upload a PDF for document analysis.</p>
-          <div class="welcome-chips">
-            <button class="chip" data-prompt="What are the latest AI breakthroughs in 2025?">🚀 Latest AI news</button>
-            <button class="chip" data-prompt="Explain quantum computing in simple terms">⚛️ Quantum computing</button>
-            <button class="chip" data-prompt="What are the best practices for Python development?">🐍 Python best
-              practices</button>
-            <button class="chip" data-prompt="Summarize the key trends in machine learning">🧠 ML trends</button>
+      <!-- Conversation + Sources rail -->
+      <div class="page-grid">
+        <div id="messages" class="messages">
+          <!-- Welcome screen -->
+          <div id="welcome" class="welcome">
+            <p class="welcome-eyebrow">Kaito · a notebook for grounded answers</p>
+            <h1 class="welcome-title">Ask a question. <em>Read the evidence.</em></h1>
+            <p class="welcome-sub">Kaito searches the web, retrieves from your documents, and cites every claim in the margin. Open a thread below or start with one of these.</p>
+            <div class="welcome-starters">
+              <button class="starter" data-prompt="What changed in the latest EU AI Act guidance, and which provisions take effect this year?">
+                <span class="starter-kicker">Briefing</span>
+                <span class="starter-text">Walk me through the latest EU AI Act guidance and what takes effect this year.</span>
+              </button>
+              <button class="starter" data-prompt="Compare three approaches to retrieval-augmented generation: simple top-k, hybrid BM25 + vector, and HyDE. When does each break down?">
+                <span class="starter-kicker">Field guide</span>
+                <span class="starter-text">Compare naive top-k, hybrid BM25 + vector, and HyDE retrieval — and when each fails.</span>
+              </button>
+              <button class="starter" data-prompt="Summarize the methodology, sample size, and headline finding of the most-cited paper on long-context transformers from the last 18 months.">
+                <span class="starter-kicker">Reading list</span>
+                <span class="starter-text">Find the most-cited paper on long-context transformers from the last 18 months and summarize its method.</span>
+              </button>
+              <button class="starter" data-prompt="I have a PDF filed — read it and tell me which sections support a claim I want to make about pricing strategy.">
+                <span class="starter-kicker">From your files</span>
+                <span class="starter-text">Open the document I just filed and surface the sections that support a claim I'm building.</span>
+              </button>
+            </div>
+            <p class="welcome-foot">Answers are drafted first, then grounded against retrieved passages. <span class="welcome-foot-marks"><span class="cite">1</span><span class="cite">2</span><span class="cite">3</span></span> in the text point to the cards on the right.</p>
           </div>
         </div>
+
+        <!-- Sources margin rail -->
+        <aside id="sources-rail" class="sources-rail" aria-label="Sources">
+          <div class="rail-eyebrow">Sources</div>
+          <div id="sources-list" class="sources-list">
+            <p class="rail-empty">Citations will appear here as the answer arrives.</p>
+          </div>
+          <div class="rail-foot">
+            <span class="rail-foot-line"></span>
+            <span class="rail-foot-label">Margin notes</span>
+          </div>
+        </aside>
       </div>
 
       <!-- Toast -->
@@ -244,22 +261,20 @@
 
       <!-- Input Area -->
       <div class="input-area">
-        <!-- Upload indicator -->
         <div id="upload-indicator" class="upload-indicator hidden">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            stroke-width="2">
+            stroke-width="1.6">
             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
             <polyline points="14 2 14 8 20 8" />
           </svg>
           <span id="upload-filename"></span>
-          <button id="cancel-upload" class="cancel-upload">×</button>
+          <button id="cancel-upload" class="cancel-upload" aria-label="Cancel upload">×</button>
         </div>
 
         <div class="input-row">
-          <!-- PDF Upload -->
-          <label for="pdf-upload" class="icon-btn upload-btn" title="Upload PDF for document analysis">
+          <label for="pdf-upload" class="icon-btn upload-btn" title="File a PDF for document analysis">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              stroke-width="2">
+              stroke-width="1.6">
               <path
                 d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
             </svg>
@@ -267,37 +282,46 @@
           <input type="file" id="pdf-upload" accept=".pdf" multiple class="hidden" />
 
           <div class="textarea-wrapper">
-            <textarea id="chat-input" placeholder="Ask anything..." rows="1" maxlength="8000"></textarea>
+            <textarea id="chat-input" placeholder="Ask a question, file a thought, paste a passage to interrogate…" rows="1"
+              maxlength="8000"></textarea>
           </div>
 
           <button id="send-btn" class="send-btn" aria-label="Send message" disabled>
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M22 2L11 13" />
-              <path d="M22 2L15 22 11 13 2 9l20-7z" fill="none" stroke="currentColor" stroke-width="2" />
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14" />
+              <path d="M13 6l6 6-6 6" />
             </svg>
           </button>
-          <button id="stop-btn" class="send-btn hidden" aria-label="Stop generation">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="6" y="6" width="12" height="12"></rect>
+          <button id="stop-btn" class="send-btn stop-btn hidden" aria-label="Stop generation">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+              <rect x="6" y="6" width="12" height="12" rx="1.5" />
             </svg>
           </button>
         </div>
-        <p class="input-hint">Press <kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for new line · attach PDF for
-          document analysis</p>
+        <p class="input-hint"><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for a new line · attach a PDF to file a document</p>
       </div>
     </main>
   </div>
 
-  <!-- PDF upload while uploading overlay -->
+  <!-- PDF upload overlay -->
   <div id="upload-overlay" class="modal-overlay hidden">
     <div class="upload-modal">
       <div class="upload-spinner"></div>
-      <p>Processing document<span class="dots"></span></p>
+      <p>Reading and indexing<span class="dots"></span></p>
     </div>
   </div>
 
+  <!-- Connector SVG layer (for inline-citation dotted lines) -->
+  <svg id="connector-layer" class="connector-layer" aria-hidden="true">
+    <defs>
+      <pattern id="dot-pattern" width="4" height="4" patternUnits="userSpaceOnUse">
+        <circle cx="1" cy="2" r="0.8" fill="currentColor" />
+      </pattern>
+    </defs>
+  </svg>
+
   <!-- Markdown + Syntax Highlighting -->
-  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-light.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked@9/marked.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked-highlight@2/lib/index.umd.js"></script>

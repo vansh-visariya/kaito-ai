@@ -1,3 +1,12 @@
+---
+title: Kaito AI
+emoji: 🤖
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+app_port: 7860
+---
+
 # Kaito-AI
 
 Kaito-AI is a state-of-the-art conversational AI backend featuring **Corrective RAG (CRAG)**, **Multi-Query HyDE Transformations**, and **Hybrid Search** with cross-encoder reranking. It's built on a secure, multi-user architecture with full state persistence, agent tracking, and server-sent events (SSE) streaming.

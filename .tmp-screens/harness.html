@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<title>Kaito (screenshot harness)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link
+  href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT,WONK@9..144,300..900,0..100,0..1&family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap"
+  rel="stylesheet" />
+<link rel="stylesheet" href="style.css" />
+<style>
+  body { background: var(--paper); }
+  /* Force show app + hide modal in screenshot harness */
+  #auth-overlay { display: none !important; }
+  #app { display: flex !important; }
+  /* Faux content to look like a real session */
+  .topbar-mode { display: inline-flex !important; }
+</style>
+</head>
+<body>
+  <!-- Auth modal (kept off) -->
+  <div id="auth-overlay" class="modal-overlay"></div>
+
+  <div id="app" class="app">
+    <aside id="sidebar" class="sidebar">
+      <div class="sidebar-header">
+        <div class="wordmark wordmark-sm"><span class="wordmark-k">K</span><span class="wordmark-rest">aito</span></div>
+        <button class="icon-btn" aria-label="Toggle sidebar">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+            <line x1="3" y1="12" x2="21" y2="12" />
+            <line x1="3" y1="6" x2="21" y2="6" />
+            <line x1="3" y1="18" x2="21" y2="18" />
+          </svg>
+        </button>
+      </div>
+      <div class="sidebar-section">
+        <button class="btn-new-chat"><span class="plus-mark">+</span><span>New thread</span></button>
+      </div>
+      <div class="sidebar-section sidebar-section-grow">
+        <div class="section-label">Index</div>
+        <div id="thread-list" class="thread-list">
+          <div class="thread-item active"><span class="thread-preview">Hybrid retrieval vs. HyDE — when each breaks down</span><button class="thread-delete">×</button></div>
+          <div class="thread-item"><span class="thread-preview">EU AI Act briefing, Nov 2026 amendments</span><button class="thread-delete">×</button></div>
+          <div class="thread-item"><span class="thread-preview">Long-context transformers reading list</span><button class="thread-delete">×</button></div>
+          <div class="thread-item"><span class="thread-preview">Pricing strategy notes — Q3 review</span><button class="thread-delete">×</button></div>
+          <div class="thread-item"><span class="thread-preview">BM25 weighting for legal discovery</span><button class="thread-delete">×</button></div>
+          <div class="thread-item"><span class="thread-preview">Citation graphs and answer provenance</span><button class="thread-delete">×</button></div>
+        </div>
+      </div>
+      <div class="sidebar-section">
+        <div class="section-label">Documents</div>
+        <div id="doc-list" class="doc-list">
+          <div class="doc-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="doc-name">ai-act-guidance.pdf</span>
+            <button class="doc-delete">×</button>
+          </div>
+          <div class="doc-item">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="doc-name">long-context-survey.pdf</span>
+            <button class="doc-delete">×</button>
+          </div>
+        </div>
+        <button class="btn-ghost btn-sm" style="margin-top:8px">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" /></svg>
+          Clear all
+        </button>
+      </div>
+      <div class="sidebar-footer">
+        <button class="btn-ghost btn-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 6h18" /><path d="M8 6V4h8v2" /><path d="M19 6l-1 14H6L5 6" /></svg>
+          Tidy index
+        </button>
+        <div class="user-profile">
+          <div class="user-avatar">V</div>
+          <div class="user-info">
+            <div class="user-name">vansh</div>
+            <div class="user-email">vansh@visariya.dev</div>
+          </div>
+        </div>
+        <button class="btn-ghost btn-sm">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" /></svg>
+          Sign out
+        </button>
+      </div>
+    </aside>
+
+    <main class="chat-area">
+      <div class="chat-topbar">
+        <div class="topbar-title">Hybrid retrieval vs. HyDE — when each breaks down</div>
+        <div id="topbar-mode" class="topbar-mode" data-mode="rag">
+          <span class="topbar-mode-dot"></span>
+          <span class="topbar-mode-label">RAG</span>
+        </div>
+        <div class="topbar-docs">Docs filed</div>
+      </div>
+
+      <div class="page-grid">
+        <div id="messages" class="messages">
+          <div class="msg-wrapper user">
+            <div class="bubble user">
+              Compare three approaches to retrieval-augmented generation — naive top-k, hybrid BM25 + vector, and HyDE — and tell me when each one breaks down.
+            </div>
+          </div>
+
+          <div class="msg-wrapper assistant">
+            <div class="avatar ai">K</div>
+            <div class="bubble assistant">
+              <p>Each of the three approaches fails for a different reason, and the failure modes are not interchangeable.</p>
+              <p><strong>Naive top-k</strong> is the brittle baseline. It assumes the query's literal terms appear in the passage that answers it — which is fine when the user knows the document's vocabulary, and catastrophic when they don't. Paraphrased questions, technical jargon mismatches, and cross-lingual retrieval all expose it.<sup class="cite" data-num="1">1</sup> </p>
+              <p><strong>Hybrid BM25 + vector</strong> recovers some of that by fusing lexical and semantic signals, usually through reciprocal-rank fusion.<sup class="cite" data-num="2">2</sup> It is the strongest default for enterprise corpora, but the two retrievers can quietly reinforce each other's blind spots when both miss the same region of the embedding space.</p>
+              <p><strong>HyDE</strong> (Hypothetical Document Embeddings) sidesteps the vocabulary mismatch by generating a fake answer and searching with that. The known failure mode is hallucination leakage: the retriever finds passages that look like the hypothetical answer, which may have nothing to do with the real evidence.<sup class="cite" data-num="3">3</sup> Use it on thin queries, never on factual ones where provenance matters.</p>
+              <p>A practical ordering: start with hybrid, fall back to HyDE only when queries are short and open-ended, and treat naive top-k as the floor you measure against.</p>
+            </div>
+          </div>
+        </div>
+
+        <aside id="sources-rail" class="sources-rail" aria-label="Sources">
+          <div class="rail-eyebrow">Sources</div>
+          <div id="sources-list" class="sources-list">
+            <div class="source-card" id="source-1" data-num="1">
+              <div class="source-card-head">
+                <span class="source-card-num">1</span>
+                <span class="source-card-file">long-context-survey.pdf</span>
+                <span class="source-card-page">p. 14</span>
+              </div>
+              <div class="source-card-snippet">"…vocabulary mismatch between query and passage remains the dominant failure mode for embedding-only retrievers, with paraphrased queries degrading recall by 20–35% across benchmarks…"</div>
+            </div>
+            <div class="source-card" id="source-2" data-num="2">
+              <div class="source-card-head">
+                <span class="source-card-num">2</span>
+                <span class="source-card-file">hybrid-retrieval-notes.pdf</span>
+                <span class="source-card-page">p. 7</span>
+              </div>
+              <div class="source-card-snippet">"Reciprocal-rank fusion dampens disagreement between lexical and semantic rankers, but inherits both of their blind spots when those rankers fail on the same document cluster."</div>
+            </div>
+            <div class="source-card" id="source-3" data-num="3">
+              <div class="source-card-head">
+                <span class="source-card-num">3</span>
+                <span class="source-card-file">ai-act-guidance.pdf</span>
+                <span class="source-card-page">p. 22</span>
+              </div>
+              <div class="source-card-snippet">"Hypothetical-document embeddings have been observed to drift toward plausible-sounding but ungrounded answers when the source corpus is narrow or biased."</div>
+            </div>
+          </div>
+          <div class="rail-foot">
+            <span class="rail-foot-line"></span>
+            <span class="rail-foot-label">Margin notes</span>
+          </div>
+        </aside>
+      </div>
+
+      <div class="input-area">
+        <div class="input-row">
+          <button class="icon-btn upload-btn" title="File a PDF">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+              <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+            </svg>
+          </button>
+          <div class="textarea-wrapper">
+            <textarea rows="1">So given that, where would CRAG sit in this ordering?</textarea>
+          </div>
+          <button class="send-btn" aria-label="Send message">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M5 12h14" /><path d="M13 6l6 6-6 6" />
+            </svg>
+          </button>
+        </div>
+        <p class="input-hint"><kbd>Enter</kbd> to send · <kbd>Shift+Enter</kbd> for a new line · attach a PDF to file a document</p>
+      </div>
+    </main>
+  </div>
+
+  <svg id="connector-layer" class="connector-layer" aria-hidden="true">
+    <defs><pattern id="dot-pattern" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="1" cy="2" r="0.8" fill="currentColor"/></pattern></defs>
+  </svg>
+</body>
+</html>

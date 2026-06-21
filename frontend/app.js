@@ -61,6 +61,16 @@ const uploadOverlay = document.getElementById('upload-overlay');
 const toastEl = document.getElementById('toast');
 const topbarLabel = document.getElementById('topbar-thread-label');
 const topbarDocsBadge = document.getElementById('topbar-docs-badge');
+const topbarMode = document.getElementById('topbar-mode');
+
+const sourcesRail = document.getElementById('sources-rail');
+const sourcesListEl = document.getElementById('sources-list');
+const connectorLayer = document.getElementById('connector-layer');
+
+const SUPER_DIGITS = '⁰¹²³⁴⁵⁶⁷⁸⁹';
+function toSuperscript(n) {
+  return String(n).split('').map(d => d === '-' ? '⁻' : SUPER_DIGITS[+d]).join('');
+}
 
 // ── State ─────────────────────────────────────────────────────────────────
 let currentThreadId = null;
@@ -131,21 +141,176 @@ function addCopyButtons(el) {
   });
 }
 
-// ── Source citations ──────────────────────────────────────────────────────
-/** Append a sources bar under a bubble element. */
+// ── Source citations (signature: margin notes rail) ───────────────────────
+
+/** Inject inline ¹²³ markers into the bubble's last sentences,
+ *  and populate the right-rail notebook cards. */
 function renderSources(sources, bubble) {
+  // Always clear the rail first so old citations don't linger.
+  clearSourcesRail();
+
   if (!sources || !sources.length) return;
-  const bar = document.createElement('div');
-  bar.className = 'sources';
-  bar.innerHTML = '<span class="sources-label">Sources</span>';
-  sources.forEach(s => {
-    const chip = document.createElement('span');
-    chip.className = 'source-chip';
-    chip.textContent = `📄 ${s.file} · p.${s.page}`;
-    chip.title = `${s.file}, page ${s.page}`;
-    bar.appendChild(chip);
+
+  // 1. Inject inline citation markers at sentence boundaries
+  injectCitationMarkers(bubble, sources.length);
+
+  // 2. Populate the rail
+  sources.forEach((s, i) => {
+    const num = i + 1;
+    const card = document.createElement('div');
+    card.className = 'source-card';
+    card.dataset.num = String(num);
+    card.id = `source-${num}`;
+    const snippet = (s.snippet || s.text || '').trim();
+    const page = s.page != null ? `p. ${s.page}` : '';
+    card.innerHTML = `
+      <div class="source-card-head">
+        <span class="source-card-num">${num}</span>
+        <span class="source-card-file" title="${escapeHtml(s.file || '')}">${escapeHtml(s.file || 'Source')}</span>
+        <span class="source-card-page">${escapeHtml(page)}</span>
+      </div>
+      <div class="source-card-snippet">${escapeHtml(snippet || '— no excerpt returned —')}</div>
+    `;
+    sourcesListEl.appendChild(card);
   });
-  bubble.appendChild(bar);
+
+  // 3. Wire up citation markers ↔ cards (hover/focus highlight + scroll)
+  bubble.querySelectorAll('.cite').forEach(marker => {
+    const num = marker.dataset.num;
+    const card = sourcesListEl.querySelector(`#source-${num}`);
+    if (!card) return;
+    marker.addEventListener('mouseenter', () => {
+      card.classList.add('is-active');
+      marker.classList.add('is-active');
+      drawConnector(marker, card);
+    });
+    marker.addEventListener('mouseleave', () => {
+      card.classList.remove('is-active');
+      marker.classList.remove('is-active');
+      clearConnectors();
+    });
+    marker.addEventListener('click', () => {
+      card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      card.classList.add('is-active');
+      setTimeout(() => card.classList.remove('is-active'), 1200);
+    });
+  });
+
+  // 4. Draw all connectors after layout settles
+  requestAnimationFrame(() => {
+    bubble.querySelectorAll('.cite').forEach(marker => {
+      const num = marker.dataset.num;
+      const card = sourcesListEl.querySelector(`#source-${num}`);
+      if (card) drawConnector(marker, card);
+    });
+  });
+}
+
+function clearSourcesRail() {
+  if (sourcesListEl) {
+    sourcesListEl.innerHTML = '<p class="rail-empty">Citations will appear here as the answer arrives.</p>';
+  }
+  clearConnectors();
+}
+
+/** Place ¹²³ markers at the end of the last N sentences in the bubble. */
+function injectCitationMarkers(bubble, n) {
+  if (!n) return;
+  // Walk the last <p> elements of the bubble; we want to spread markers
+  // across the answer so each one anchors to a different card.
+  const paragraphs = Array.from(bubble.querySelectorAll('p, li'));
+  if (!paragraphs.length) return;
+
+  // We need a flat text view. Strategy: clone the bubble, walk through its
+  // top-level text nodes and element children, find sentence-end positions,
+  // then insert <sup class="cite"> after those positions in the *live* DOM.
+  const live = bubble;
+  const text = live.textContent || '';
+  // Find positions of sentence boundaries in the visible text.
+  const boundaries = [];
+  const re = /([.!?])\s+/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    boundaries.push(m.index + m[0].length);
+  }
+  if (!boundaries.length) {
+    // Fallback: just append markers at the end of the last paragraph
+    const last = paragraphs[paragraphs.length - 1];
+    for (let i = 0; i < n; i++) {
+      const sup = document.createElement('sup');
+      sup.className = 'cite';
+      sup.textContent = String(i + 1);
+      sup.dataset.num = String(i + 1);
+      last.appendChild(sup);
+    }
+    return;
+  }
+  // Distribute the n markers across the tail of the answer
+  const take = Math.min(n, boundaries.length);
+  const positions = boundaries.slice(-take);
+  // Insert from the END so earlier offsets don't shift.
+  for (let k = take - 1; k >= 0; k--) {
+    const absPos = positions[k];
+    const target = positions[k] - absPos; // unused
+    const num = k + 1;
+    insertCiteAtTextOffset(live, absPos, num);
+  }
+}
+
+/** Insert a <sup class="cite">N</sup> just after the given character offset
+ *  in the bubble's text content, splitting the text node at that point. */
+function insertCiteAtTextOffset(root, offset, num) {
+  let remaining = offset;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let node;
+  while ((node = walker.nextNode())) {
+    const len = node.nodeValue.length;
+    if (remaining <= len) {
+      // Split this text node at `remaining` and insert the sup after it.
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.setEnd(node, remaining);
+      const sup = document.createElement('sup');
+      sup.className = 'cite';
+      sup.textContent = String(num);
+      sup.dataset.num = String(num);
+      range.insertNode(sup);
+      // Move the caret-style space after the sup (so word boundary holds)
+      // We add a thin space text node after the sup to keep the cite from
+      // gluing onto the next word.
+      const spacer = document.createTextNode(' ');
+      sup.parentNode.insertBefore(spacer, sup.nextSibling);
+      return;
+    }
+    remaining -= len;
+  }
+}
+
+// ── Connector drawing (dotted line from citation marker → source card) ─────
+function clearConnectors() {
+  if (!connectorLayer) return;
+  // Remove all <line> children but keep <defs>
+  Array.from(connectorLayer.querySelectorAll('line')).forEach(el => el.remove());
+}
+
+function drawConnector(marker, card) {
+  if (!connectorLayer || !marker || !card) return;
+  // Use viewport-relative coordinates because the layer is `position: fixed`
+  const m = marker.getBoundingClientRect();
+  const c = card.getBoundingClientRect();
+  if (m.width === 0 || c.width === 0) return;
+
+  const startX = m.right;
+  const startY = m.top + m.height / 2;
+  const endX = c.left;
+  const endY = c.top + c.height / 2;
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', startX);
+  line.setAttribute('y1', startY);
+  line.setAttribute('x2', endX);
+  line.setAttribute('y2', endY);
+  connectorLayer.appendChild(line);
 }
 
 // ── User profile UI ──────────────────────────────────────────────────────
@@ -163,6 +328,18 @@ function updateDocsBadge(hasDocs) {
     topbarDocsBadge.classList.remove('hidden');
   } else {
     topbarDocsBadge.classList.add('hidden');
+  }
+}
+
+// ── Topbar mode tag (search vs rag) ───────────────────────────────────────
+function updateTopbar(mode) {
+  if (!topbarMode) return;
+  if (mode === 'rag' || mode === 'rag_mode') {
+    topbarMode.dataset.mode = 'rag';
+    topbarMode.querySelector('.topbar-mode-label').textContent = 'RAG';
+  } else {
+    topbarMode.dataset.mode = 'search';
+    topbarMode.querySelector('.topbar-mode-label').textContent = 'Search';
   }
 }
 
@@ -295,6 +472,7 @@ function clearMessages() {
   messagesEl.appendChild(welcomeEl);
   welcomeEl.classList.remove('hidden');
   messageCount = 0;
+  clearSourcesRail();
 }
 
 function renderHistory(messages) {
@@ -346,7 +524,8 @@ async function selectThread(tid) {
       body: JSON.stringify({ thread_id: tid }),
     });
     currentThreadId = data.thread_id;
-    topbarLabel.textContent = 'Conversation';
+    topbarLabel.textContent = 'Untitled thread';
+    updateTopbar(data.mode);
     renderHistory(data.messages);
     await loadThreads();
   } catch (err) {
@@ -516,8 +695,10 @@ newChatBtn.addEventListener('click', async () => {
   try {
     const data = await api('/api/threads/new', { method: 'POST' });
     currentThreadId = data.thread_id;
-    topbarLabel.textContent = 'New Conversation';
+    topbarLabel.textContent = 'Untitled thread';
+    updateTopbar(data.mode);
     clearMessages();
+    clearSourcesRail();
     await loadThreads();
   } catch (err) {
     showToast(err.message, 'error');
@@ -545,7 +726,7 @@ stopBtn.addEventListener('click', () => {
   }
 });
 
-document.querySelectorAll('.chip').forEach(chip => {
+document.querySelectorAll('.starter').forEach(chip => {
   chip.addEventListener('click', () => {
     chatInput.value = chip.dataset.prompt;
     sendBtn.disabled = false;
@@ -648,6 +829,7 @@ async function handleSend() {
           addCopyButtons(bubble);
           renderSources(evt.sources || [], bubble);
           currentThreadId = evt.thread_id;
+          updateTopbar(evt.mode);
           await loadThreads();
 
         } else if (evt.type === 'error') {
@@ -703,9 +885,10 @@ async function uploadFiles(files) {
     files.forEach(f => form.append('files', f));
     const data = await api('/api/documents/upload', { method: 'POST', body: form });
     currentThreadId = data.thread_id;
-    topbarLabel.textContent = 'Document Analysis';
+    topbarLabel.textContent = 'Document analysis';
+    updateTopbar('rag');
     updateDocsBadge(true);
-    showToast(`✅ ${data.uploaded.length} document(s) uploaded`, 'success');
+    showToast(`Filed ${data.uploaded.length} document${data.uploaded.length > 1 ? 's' : ''}.`, 'success');
     await loadDocuments();
     await loadThreads();
   } finally {
@@ -720,7 +903,7 @@ clearDocsBtn.addEventListener('click', async () => {
     currentThreadId = data.thread_id;
     updateDocsBadge(false);
     clearMessages();
-    showToast('All documents cleared', 'success');
+    showToast('Documents cleared from the index.', 'success');
     await loadDocuments();
     await loadThreads();
   } catch (err) {
@@ -760,6 +943,19 @@ logoutBtn.addEventListener('click', async () => {
 // ── Sidebar toggles ───────────────────────────────────────────────────────
 sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('collapsed'));
 mobSidebarToggle.addEventListener('click', () => sidebar.classList.toggle('mobile-open'));
+
+// ── Connector redraw on resize / scroll ───────────────────────────────────
+let redrawTimer = null;
+function scheduleConnectorRedraw() {
+  if (redrawTimer) return;
+  redrawTimer = requestAnimationFrame(() => {
+    redrawTimer = null;
+    clearConnectors();
+  });
+}
+window.addEventListener('resize', scheduleConnectorRedraw);
+messagesEl.addEventListener('scroll', scheduleConnectorRedraw);
+sourcesListEl.addEventListener('scroll', scheduleConnectorRedraw);
 
 document.addEventListener('click', e => {
   if (window.innerWidth <= 700 && sidebar.classList.contains('mobile-open')) {

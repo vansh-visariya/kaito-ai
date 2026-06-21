@@ -37,3 +37,6 @@ dev = [
     "ruff",
     "mypy",
 ]
+
+[tool.vercel]
+entrypoint = "api:app"
